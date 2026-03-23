@@ -1,50 +1,167 @@
 {
   "enabled": true,
+  "twitchBotToken": "oauth:your_token_here",
+  "twitchChannelName": "albire0",
+  "archiveDbPath": "tshock/Metatron/Archive.sqlite",
+  "streamerDiscordId": 123456789012345678,
   "pools": [
+    {
+      "triggerCommand": "!help",
+      "isRewardRedemption": false,
+      "cooldownSeconds": 30,
+      "events": [
+        {
+          "name": "Quick Getaway (Swiftness)",
+          "weight": 100,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/buff \"Swiftness\" \"{player}\" 60"]
+        },
+        {
+          "name": "Spelunker's Glow",
+          "weight": 100,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/buff \"Spelunker\" \"{player}\" 120", "/buff \"Mining\" \"{player}\" 120"]
+        },
+        {
+          "name": "A Single Torpedo",
+          "weight": 50,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/give \"Bomb\" \"{player}\" 1"]
+        }
+      ]
+    },
     {
       "triggerCommand": "!annoy",
       "isRewardRedemption": false,
-      "cooldownSeconds": 60,
+      "cooldownSeconds": 30,
       "events": [
         {
           "name": "Butterfingers",
+          "weight": 100,
           "minimumProgression": "Any",
           "maximumProgression": "Any",
           "tShockCommands": ["/drop \"{player}\""]
         },
         {
+          "name": "Dizzy (Confused)",
+          "weight": 100,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/buff \"Confused\" \"{player}\" 10"]
+        },
+        {
+          "name": "Frozen Solid",
+          "weight": 50,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/buff \"Frozen\" \"{player}\" 3"]
+        }
+      ]
+    },
+    {
+      "triggerCommand": "!roulette_small",
+      "isRewardRedemption": true,
+      "cooldownSeconds": 60,
+      "events": [
+        {
+          "name": "Slightly Richer (1 Gold)",
+          "weight": 10,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/give \"Gold Coin\" \"{player}\" 1"]
+        },
+        {
+          "name": "A Flock of Bats",
+          "weight": 40,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/spawnmob \"Cave Bat\" 5"]
+        },
+        {
           "name": "Gravity Flip",
+          "weight": 40,
           "minimumProgression": "Any",
           "maximumProgression": "Any",
           "tShockCommands": ["/buff \"Gravitation\" \"{player}\" 10"]
         },
         {
-          "name": "Sudden Darkness",
+          "name": "Summon Pinky",
+          "weight": 10,
           "minimumProgression": "Any",
           "maximumProgression": "Any",
-          "tShockCommands": ["/buff \"Blindness\" \"{player}\" 15"]
+          "tShockCommands": ["/spawnmob \"Pinky\" 1"]
         }
       ]
     },
     {
-      "triggerCommand": "!boss",
-      "isRewardRedemption": false,
+      "triggerCommand": "!roulette_large",
+      "isRewardRedemption": true,
       "cooldownSeconds": 300,
       "events": [
         {
-          "name": "Eye of Cthulhu",
+          "name": "JACKPOT: Temporary God Mode",
+          "weight": 5,
           "minimumProgression": "Any",
           "maximumProgression": "Any",
-          "tShockCommands": ["/spawnmob \"Eye of Cthulhu\" 1"]
+          "durationSeconds": 30,
+          "tShockCommands": ["/godmode \"{player}\"", "/give \"Platinum Coin\" \"{player}\" 1"],
+          "revertCommands": ["/godmode \"{player}\""]
+        },
+        {
+          "name": "DISASTER: The Blood Moon Rises",
+          "weight": 20,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/time dusk", "/bloodmoon"]
+        },
+        {
+          "name": "DISASTER: The Eclipse",
+          "weight": 20,
+          "minimumProgression": "Hardmode",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/time dawn", "/eclipse"]
+        },
+        {
+          "name": "Gorgon's Gaze (Stoned in place)",
+          "weight": 35,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/buff \"Stoned\" \"{player}\" 10"]
+        },
+        {
+          "name": "Mini-Boss: King Slime",
+          "weight": 20,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/spawnmob \"King Slime\" 1"]
+        }
+      ]
+    },
+    {
+      "triggerCommand": "!boss_drop",
+      "isRewardRedemption": true,
+      "cooldownSeconds": 600,
+      "events": [
+        {
+          "name": "Eye of Cthulhu",
+          "weight": 100,
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/spawnmob \"Eye of Cthulhu\" 1", "/time night"]
         },
         {
           "name": "The Twins",
+          "weight": 100,
           "minimumProgression": "Hardmode",
           "maximumProgression": "Any",
-          "tShockCommands": ["/spawnmob \"Retinazer\" 1", "/spawnmob \"Spazmatism\" 1"]
+          "tShockCommands": ["/spawnmob \"Retinazer\" 1", "/spawnmob \"Spazmatism\" 1", "/time night"]
         },
         {
           "name": "Plantera",
+          "weight": 100,
           "minimumProgression": "PostPlantera",
           "maximumProgression": "Any",
           "tShockCommands": ["/spawnmob \"Plantera\" 1"]
