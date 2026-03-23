@@ -1,13 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <TargetFramework>net8.0</TargetFramework> <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>5.0.4</Version>
+    <Version>5.0.5</Version>
     <Authors>HistoryLabs</Authors>
   </PropertyGroup>
 
@@ -19,12 +18,12 @@
 
   <Target Name="MergeDlls" AfterTargets="Publish">
     <ItemGroup>
-      <MergeAssemblies Include="$(PublishDir)TwitchLib.*.dll" />
+      <MergeAssemblies Include="$(PublishDir)TwitchLib*.dll" />
+      <MergeAssemblies Include="$(PublishDir)ZstdSharp.dll" />
     </ItemGroup>
     
     <ILRepack Parallel="true" 
               Internalize="true" 
-              AllowedDuplicateNamespaces="Microsoft.Extensions.Logging" 
               InputAssemblies="$(PublishDir)$(AssemblyName).dll;@(MergeAssemblies)" 
               TargetKind="Dll" 
               OutputFile="$(PublishDir)$(AssemblyName).dll" 
@@ -33,7 +32,6 @@
     <ItemGroup>
       <FilesToDelete Include="$(PublishDir)**\*.*" Exclude="$(PublishDir)$(AssemblyName).dll" />
     </ItemGroup>
-    
     <Delete Files="@(FilesToDelete)" />
   </Target>
 
