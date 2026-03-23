@@ -7,21 +7,19 @@
     <OutputType>Library</OutputType>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>1.0.0</Version>
+    <Version>4.0.0</Version>
     <Authors>HistoryLabs</Authors>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="TShock" Version="6.1.0" />
     <PackageReference Include="TwitchLib" Version="3.5.3" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
     <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.34.1" />
   </ItemGroup>
 
   <Target Name="MergeDlls" AfterTargets="Publish">
     <ItemGroup>
       <MergeAssemblies Include="$(PublishDir)TwitchLib.*.dll" />
-      <MergeAssemblies Include="$(PublishDir)Microsoft.Data.Sqlite.dll" />
     </ItemGroup>
     
     <ILRepack Parallel="true" 
