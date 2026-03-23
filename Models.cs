@@ -35,13 +35,16 @@ public class ChaosEvent
     public int QueueDurationSeconds { get; set; } = 0; 
     public bool RequiresTargetAlive { get; set; } = false; 
     
+    // NEW: Situational Awareness (Re-Roll Triggers)
+    public bool BlockedIfFullHealth { get; set; } = false;
+    public List<string> BlockedIfHasBuffs { get; set; } = new(); 
+    
     // Progression Locks
-    public string MinimumProgression { get; set; } = "Any"; // Any, Hardmode, PostPlantera
+    public string MinimumProgression { get; set; } = "Any"; 
     public string MaximumProgression { get; set; } = "Any";
     
     public List<string> TShockCommands { get; set; } = new();
 }
-
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(HavocConfig))]
 internal partial class HavocJsonContext : JsonSerializerContext { }
