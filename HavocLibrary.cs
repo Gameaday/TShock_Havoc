@@ -3,102 +3,118 @@ using System.Collections.Generic;
 using System.Linq;
 using Terraria;
 using Terraria.ID;
-using TerrariaApi.Server;
 using TShockAPI;
 
 namespace Havoc;
 
-#region STATIC METADATA
-public static class HavocLibrary
-{
-    public static bool IsInInvalidState(TSPlayer player) => 
-        player.X <= 0 || player.Y <= 0 || float.IsNaN(player.X) || float.IsNaN(player.Y);
-
-    public static bool IsAnyBossActive() => 
-        Main.npc.Any(n => n != null && n.active && (n.boss || NPC.Targeting_NPC_Boss));
-
-    public static bool IsWorldEventActive() => 
-        Main.bloodMoon || Main.eclipse || Main.snowMoon || Main.pumpkinMoon || Main.slimeRain;
-}
-#endregion
-
-#region SEMANTIC ENGINE (REFLECTION)
 public static class HavocIndex
 {
-    public static List<Item> Weapons = new();
-    public static List<Item> HealingItems = new();
-    public static List<NPC> StandardEnemies = new();
-
-    private static bool _isIndexed = false;
+    public static Dictionary<string, List<int>> ItemTags = new(StringComparer.OrdinalIgnoreCase);
+    public static Dictionary<string, List<int>> MobTags = new(StringComparer.OrdinalIgnoreCase);
 
     public static void BuildIndex()
     {
-        if (_isIndexed) return;
+        ItemTags.Clear(); MobTags.Clear();
+        ItemTags["All"] = new List<int>(); MobTags["All"] = new List<int>();
 
-        // Extract Weapons & Healing
+        // 1. Deep Item Tagging
         for (int i = 1; i < ItemID.Count; i++)
         {
-            Item item = new Item();
-            item.SetDefaults(i);
+            Item item = new(); item.SetDefaults(i);
+            if (string.IsNullOrEmpty(item.Name)) continue;
 
-            if (item.damage > 0 && !item.accessory && item.ammo == 0) Weapons.Add(item);
-            if (item.healLife > 0 && !item.potion) HealingItems.Add(item); // Non-cooldown heals
+            List<string> tags = new() { "All" };
+            if (item.damage > 0 && !item.accessory && item.ammo == 0) tags.Add("Weapon");
+            if (item.accessory) tags.Add("Accessory");
+            if (item.healLife > 0) tags.Add("Healing");
+            if (item.pick > 0 || item.axe > 0 || item.hammer > 0) tags.Add("Tool");
+
+            if (item.melee) tags.Add("Melee");
+            if (item.ranged) tags.Add("Ranged");
+            if (item.magic) tags.Add("Magic");
+            if (item.summon) tags.Add("Summon");
+            
+            if (item.Name.Contains("Yoyo") || item.channel) tags.Add("Yoyo");
+            if (item.Name.Contains("Sword") || item.Name.Contains("Blade")) tags.Add("Sword");
+
+            foreach (var tag in tags) { if (!ItemTags.ContainsKey(tag)) ItemTags[tag] = new(); ItemTags[tag].Add(i); }
         }
 
-        // Extract Standard Enemies
+        // 2. Deep Mob Tagging
         for (int i = 1; i < NPCID.Count; i++)
         {
-            NPC npc = new NPC();
-            npc.SetDefaults(i);
+            NPC npc = new(); npc.SetDefaults(i);
+            if (string.IsNullOrEmpty(npc.FullName) || npc.friendly || npc.townNPC) continue;
 
-            if (!npc.friendly && !npc.townNPC && !npc.boss && npc.lifeMax > 5 && npc.damage > 0)
-                StandardEnemies.Add(npc);
+            List<string> tags = new() { "All", "Enemy" };
+            if (npc.boss) tags.Add("Boss");
+            if (npc.noGravity) tags.Add("Flying");
+            if (npc.value > 1000) tags.Add("Elite");
+            
+            if (npc.aiStyle == 1 || npc.aiStyle == 15) tags.Add("Slime");
+            if (npc.aiStyle == 3) tags.Add("Fighter");
+            if (npc.aiStyle == 8 || npc.aiStyle == 17) tags.Add("Caster");
+
+            foreach (var tag in tags) { if (!MobTags.ContainsKey(tag)) MobTags[tag] = new(); MobTags[tag].Add(i); }
         }
 
-        _isIndexed = true;
-        TShock.Log.ConsoleInfo($"[Havoc] Semantic Index Built: {Weapons.Count} Weapons, {StandardEnemies.Count} Enemies loaded.");
+        TShock.Log.ConsoleInfo($"[Havoc] Semantic Index Built. Items: {ItemTags["All"].Count}, Mobs: {MobTags["All"].Count}");
     }
 
     public static int GetCurrentWorldTier()
     {
         if (NPC.downedMoonlord) return 11;
-        if (NPC.downedAncientCultist) return 10;
         if (NPC.downedGolemBoss) return 8;
         if (NPC.downedPlantBoss) return 7;
-        if (NPC.downedMechBoss1 && NPC.downedMechBoss2 && NPC.downedMechBoss3) return 5;
+        if (NPC.downedMechBossAny) return 5;
         if (Main.hardMode) return 4;
-        if (NPC.downedBoss3) return 3; // Skeletron
-        if (NPC.downedBoss2) return 2; // EoW/BoC
-        if (NPC.downedBoss1) return 1; // Eye of Cthulhu
+        if (NPC.downedBoss3) return 3;
+        if (NPC.downedBoss2) return 2;
+        if (NPC.downedBoss1) return 1;
         return 0;
     }
 
-    public static List<string> ResolveQuery(SemanticQuery query, string playerName, float tx, float ty)
+    public static Item? QueryItem(SemanticQuery query, int worldTier)
     {
-        List<string> generatedCommands = new();
-        int tier = GetCurrentWorldTier();
+        int? id = PerformIntersection(ItemTags, query, worldTier, true);
+        if (!id.HasValue) return null;
+        Item item = new(); item.SetDefaults(id.Value); return item;
+    }
 
-        int minRarity = query.PowerLevel == "Overpowered" ? Math.Min(tier + 1, 11) : (query.PowerLevel == "Trash" ? 0 : Math.Max(0, tier - 1));
-        int maxRarity = query.PowerLevel == "Trash" ? Math.Max(0, tier - 3) : tier;
+    public static NPC? QueryMob(SemanticQuery query, int worldTier)
+    {
+        int? id = PerformIntersection(MobTags, query, worldTier, false);
+        if (!id.HasValue) return null;
+        NPC npc = new(); npc.SetDefaults(id.Value); return npc;
+    }
 
-        if (query.Action == "GiveWeapon")
-        {
-            var pool = Weapons.Where(w => w.rare >= minRarity && w.rare <= maxRarity).ToList();
-            if (pool.Count > 0) generatedCommands.Add($"/give \"{pool[Random.Shared.Next(pool.Count)].Name}\" \"{playerName}\" {query.Amount}");
-        }
-        else if (query.Action == "GiveHealing")
-        {
-            var pool = HealingItems.Where(w => w.rare <= tier).ToList();
-            if (pool.Count > 0) generatedCommands.Add($"/give \"{pool[Random.Shared.Next(pool.Count)].Name}\" \"{playerName}\" {query.Amount}");
-        }
-        else if (query.Action == "SpawnMob")
-        {
-            int maxLife = (tier + 1) * 150; // Scaling logic for mobs
-            var pool = StandardEnemies.Where(n => n.lifeMax <= maxLife && n.lifeMax >= (maxLife/4)).ToList();
-            if (pool.Count > 0) generatedCommands.Add($"/spawnmob \"{pool[Random.Shared.Next(pool.Count)].FullName}\" {query.Amount} {tx} {ty}");
-        }
+    private static int? PerformIntersection(Dictionary<string, List<int>> map, SemanticQuery query, int worldTier, bool isItem)
+    {
+        var required = query.Tags.Where(t => !t.StartsWith("-")).ToList();
+        var excluded = query.Tags.Where(t => t.StartsWith("-")).Select(t => t.Substring(1)).ToList();
 
-        return generatedCommands;
+        IEnumerable<int> results = required.Count > 0 && map.ContainsKey(required[0]) ? map[required[0]] : map["All"];
+
+        foreach (var tag in required.Skip(1))
+            if (map.ContainsKey(tag)) results = results.Intersect(map[tag]); else return null;
+
+        foreach (var tag in excluded)
+            if (map.ContainsKey(tag)) results = results.Except(map[tag]);
+
+        results = results.Where(id => 
+        {
+            int tier = 0;
+            if (isItem) { Item t = new(); t.SetDefaults(id); tier = t.rare; }
+            else { NPC t = new(); t.SetDefaults(id); tier = t.boss ? 10 : (t.value > 5000 ? 6 : (t.lifeMax > 200 ? 3 : 1)); }
+            
+            return query.PowerLevel switch {
+                "Overpowered" => tier > worldTier,
+                "Trash" => tier <= Math.Max(0, worldTier - 3),
+                _ => tier >= Math.Max(0, worldTier - 1) && tier <= Math.Min(11, worldTier + 1)
+            };
+        });
+
+        var final = results.ToList();
+        return final.Count > 0 ? final[Random.Shared.Next(final.Count)] : null;
     }
 }
-#endregion
