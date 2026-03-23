@@ -2,9 +2,9 @@ name: CI Build Check
 
 on:
   push:
-    branches: [ "main" ] # Triggers on every push to main
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ] # Triggers on any PR targeting main
+    branches: [ "main" ]
 
 jobs:
   build_test:
@@ -22,6 +22,14 @@ jobs:
       - name: Restore Dependencies
         run: dotnet restore
 
-      - name: Build Check
-        # This will fail the workflow if any compiler errors (like CS0104) are found
-        run: dotnet build -c Release
+      - name: Build Project
+        # This triggers the embedding logic in your .csproj automatically
+        run: dotnet build -c Release -o ./build
+
+      - name: Upload Build Artifact
+        # This lets you grab the .dll from the 'Actions' tab for quick testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: Havoc-CI-Build
+          path: ./build/Havoc.dll
+          if-no-files-found: error
