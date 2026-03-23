@@ -7,7 +7,7 @@
     <OutputType>Library</OutputType>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>5.0.0</Version>
+    <Version>5.0.3</Version>
     <Authors>HistoryLabs</Authors>
   </PropertyGroup>
 
@@ -21,10 +21,19 @@
     <ItemGroup>
       <MergeAssemblies Include="$(PublishDir)TwitchLib.*.dll" />
     </ItemGroup>
-    <ILRepack Parallel="true" Internalize="true" InputAssemblies="$(PublishDir)$(AssemblyName).dll;@(MergeAssemblies)" TargetKind="Dll" OutputFile="$(PublishDir)$(AssemblyName).dll" LibraryPath="$(PublishDir)" />
+    
+    <ILRepack Parallel="true" 
+              Internalize="true" 
+              AllowDuplicateTypes="*" 
+              InputAssemblies="$(PublishDir)$(AssemblyName).dll;@(MergeAssemblies)" 
+              TargetKind="Dll" 
+              OutputFile="$(PublishDir)$(AssemblyName).dll" 
+              LibraryPath="$(PublishDir)" />
+
     <ItemGroup>
       <FilesToDelete Include="$(PublishDir)**\*.*" Exclude="$(PublishDir)$(AssemblyName).dll" />
     </ItemGroup>
+    
     <Delete Files="@(FilesToDelete)" />
   </Target>
 
