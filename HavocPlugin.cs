@@ -56,7 +56,7 @@ public class HavocPlugin : TerrariaPlugin
         ServerApi.Hooks.GamePostInitialize.Register(this, (args) => HavocIndex.BuildIndex());
         Commands.ChatCommands.Add(new Command("havoc.admin", AdminCommand, "havoc"));
 
-        _queueTick = new Timer(1000);
+        _queueTick = new System.Timers.Timer(1000);
         _queueTick.Elapsed += ProcessSmartQueue;
     }
 
