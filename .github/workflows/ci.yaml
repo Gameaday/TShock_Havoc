@@ -1,0 +1,27 @@
+name: CI Build Check
+
+on:
+  push:
+    branches: [ "main" ] # Triggers on every push to main
+  pull_request:
+    branches: [ "main" ] # Triggers on any PR targeting main
+
+jobs:
+  build_test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore Dependencies
+        run: dotnet restore
+
+      - name: Build Check
+        # This will fail the workflow if any compiler errors (like CS0104) are found
+        run: dotnet build -c Release
