@@ -1,18 +1,25 @@
 # Havoc
-### Stateless Twitch Interaction & Smart Queue Engine for TShock
+### Stateless Twitch Interaction & Semantic Query Engine for TShock
 
-Havoc is a rock-solid, completely stateless bridge between Twitch and TShock. Built for performance, it features an intelligent queuing system that manages chaotic redemptions without overwhelming the server or requiring complex databases.
+Havoc is a rock-solid, completely stateless bridge between Twitch and TShock. Built for performance, it features an intelligent Semantic Query Engine that allows viewers to interact with the game world using traits and tags rather than hardcoded IDs.
 
 ---
 
 ## Features
 
-* **Zero-Config Targeting**: Type `/havoc on` in-game. Havoc binds to your TShock Account. If you disconnect, the engine patiently holds the queue until you return.
-* **The Smart Queue**: Prevents redemptions from overwriting each other. If an Eclipse is active, a Blood Moon redemption will wait in the queue until the Eclipse finishes.
-* **The Corpse Lock**: Prevents viewers from wasting points. If a user buys a heal, but you are currently dead, the queue pauses and executes the moment you respawn.
-* **Stateless Economy**: Utilizes native Twitch chat commands and Bits. No external SQLite databases or viewer balances to manage. 
-* **VIP Bypass**: Configure massive Bit-drops to bypass the queue entirely and execute instantly for maximum impact.
-* **Dynamic Progression**: Automatically filters events based on world progression (e.g., prevents Plantera from spawning on Day 1).
+* **Semantic Query Engine**: Viewers can request "Appropriate Melee Weapons" or "Overpowered Flying Enemies." Havoc indexes Terraria's internal memory to find the perfect match for the current world tier.
+* **Zero-Config Session Persistence**: Type `/havoc on` to bind the engine to your account. If you disconnect, the engine stalls and waits for your specific account to return.
+* **Smart Queue & JIT Re-Roll**: Prevents "Redundant Redemptions." If a viewer tries to heal you while you are at full health, the engine silently re-rolls the event at the front of the line for maximum impact.
+* **Tiered Batching**: Minor events (like slimes or tricks) are batched together to keep the "spam fun" alive, while Major events (Bit donations) fire solo for high-impact presence.
+
+---
+
+## 🛠 Project Roadmap
+
+- [ ] **Inventory Hijacking**: Implement "The Great Swap." Temporarily store a player's inventory and replace it with thematic "trash" (or "gold") for a set duration.
+- [ ] **Multi-Target Support**: Allow the engine to track multiple streamers on the same server simultaneously with independent queues.
+- [ ] **Aetheric Vault API**: A read-only web-endpoint to allow OBS overlays to display the current queue and "Active Conflicts" in real-time.
+- [ ] **Dynamic Pricing**: (Exploration) Adjusting "Essence" or Bit-requirements based on the number of people currently in chat to keep the economy balanced.
 
 ---
 
@@ -20,27 +27,17 @@ Havoc is a rock-solid, completely stateless bridge between Twitch and TShock. Bu
 
 1. Drop `Havoc.dll` into your TShock `ServerPlugins` folder.
 2. Start the server to generate `tshock/Havoc/HavocConfig.json`.
-3. Add your Twitch Bot OAuth Token to the config.
+3. Add your Twitch Bot OAuth Token and Channel Name.
 4. Type `/havoc on` in-game to ignite the engine.
 
 ---
 
-## Configuration Example
-Use Thematic Pools to group events by weight and conflict group.
+## Commands
+* `/havoc on` - Binds the engine to your TShock account.
+* `/havoc off` - Disconnects from Twitch and wipes the queue.
+* `/havoc clearqueue` - Manually deletes all pending events.
+* `/havoc reload` - Hot-reloads the JSON configuration.
 
-```json
-{
-  "triggerType": "Chat",
-  "triggerIdentifier": "!trick",
-  "globalCooldownSeconds": 30,
-  "events": [
-    {
-      "name": "Gravity Flip",
-      "weight": 100,
-      "conflictGroup": "PlayerBuff",
-      "queueDurationSeconds": 15,
-      "requiresTargetAlive": true,
-      "tShockCommands": ["/buff \"Gravitation\" \"{player}\" 15"]
-    }
-  ]
-}
+---
+## License
+MIT
