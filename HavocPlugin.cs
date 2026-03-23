@@ -27,19 +27,23 @@ public class QueuedManifestation
 public class HavocPlugin : TerrariaPlugin
 {
     public override string Name => "Havoc Engine";
-    public override Version Version => new Version(3, 0, 0);
+    public override Version Version => new Version(4, 0, 0);
     public override string Author => "HistoryLabs";
 
     private string ConfigPath => Path.Combine(TShock.SavePath, "Havoc", "HavocConfig.json");
     private HavocConfig _config = new();
     private TwitchClient? _client;
-    private bool _isActive = false;
 
-    // State & Queue Management
+    // --- SESSION STATE ---
+    private string? _targetAccountName;
+    private bool _engineAwake = false;
+
+    // --- QUEUE STATE ---
     private readonly ConcurrentDictionary<string, DateTime> _cooldowns = new();
     private readonly ConcurrentDictionary<string, DateTime> _activeConflicts = new();
     private readonly ConcurrentQueue<QueuedManifestation> _actionQueue = new();
     private Timer? _queueProcessorTimer;
+    private bool _isProcessingQueue = false;
 
     public HavocPlugin(Main game) : base(game) { }
 
@@ -50,44 +54,78 @@ public class HavocPlugin : TerrariaPlugin
 
         Commands.ChatCommands.Add(new Command("havoc.admin", AdminCommand, "havoc"));
 
-        // The Smart Queue Processor (Ticks every 1 second)
         _queueProcessorTimer = new Timer(1000);
         _queueProcessorTimer.Elapsed += ProcessQueueTick;
     }
 
-    private void StartEngine(TSPlayer player)
+    // --- LIFECYCLE CONTROLS ---
+
+    private void StartHavoc(TSPlayer player)
     {
-        if (_isActive) return;
-        
-        try
+        if (!player.IsLoggedIn)
         {
-            var credentials = new ConnectionCredentials(_config.TwitchChannelName, _config.TwitchBotToken);
-            var clientOptions = new ClientOptions { MessagesAllowedInPeriod = 20, ThrottlingPeriod = TimeSpan.FromSeconds(30) };
-            WebSocketClient customClient = new WebSocketClient(clientOptions);
-            
-            _client = new TwitchClient(customClient);
-            _client.Initialize(credentials, _config.TwitchChannelName);
-            _client.OnMessageReceived += OnTwitchMessage;
-            _client.Connect();
-
-            _isActive = true;
-            _queueProcessorTimer?.Start();
-
-            player.SendSuccessMessage("[Havoc] The Engine is online and listening to Twitch.");
+            player.SendErrorMessage("[Havoc] You must be logged into an account to become the target.");
+            return;
         }
-        catch (Exception ex) { player.SendErrorMessage($"[Havoc] Ignition Failed: {ex.Message}"); }
+
+        _targetAccountName = player.Account.Name;
+        
+        if (!_engineAwake)
+        {
+            ConnectTwitch();
+            _queueProcessorTimer?.Start();
+            _engineAwake = true;
+        }
+
+        player.SendSuccessMessage($"[Havoc] Session bound to account '{_targetAccountName}'. The engine is awake and will wait for you if you disconnect.");
     }
 
-    // --- TWITCH ROUTER ---
+    private void StopHavoc()
+    {
+        _targetAccountName = null;
+        _engineAwake = false;
+        
+        _actionQueue.Clear();
+        _activeConflicts.Clear();
+        _queueProcessorTimer?.Stop();
+        
+        _client?.Disconnect();
+        _client = null;
+    }
+
+    // --- TWITCH ENGINE ---
+
+    private void ConnectTwitch()
+    {
+        if (string.IsNullOrWhiteSpace(_config.TwitchBotToken)) return;
+
+        var creds = new ConnectionCredentials(_config.TwitchChannelName, _config.TwitchBotToken);
+        var clientOptions = new ClientOptions { MessagesAllowedInPeriod = 20, ThrottlingPeriod = TimeSpan.FromSeconds(30) };
+        WebSocketClient customClient = new WebSocketClient(clientOptions);
+        
+        _client = new TwitchClient(customClient);
+        _client.Initialize(creds, _config.TwitchChannelName);
+        
+        // Resiliency Hooks
+        _client.OnDisconnected += (s, e) => {
+            TShock.Log.ConsoleWarn("[Havoc] Lost connection to Twitch. Attempting to reconnect...");
+            Task.Delay(5000).ContinueWith(_ => { if (_engineAwake && !_client.IsConnected) _client.Connect(); });
+        };
+
+        _client.OnMessageReceived += OnTwitchMessage;
+        _client.Connect();
+    }
+
     private void OnTwitchMessage(object? sender, TwitchLib.Client.Events.OnMessageReceivedArgs e)
     {
+        if (!_engineAwake) return;
+
         string user = e.ChatMessage.Username;
         string msg = e.ChatMessage.Message.Trim();
         int bits = e.ChatMessage.Bits;
 
         ManifestationPool? pool = null;
 
-        // 1. Route Bits (Highest Priority)
         if (bits > 0)
         {
             pool = _config.Manifestations
@@ -95,7 +133,6 @@ public class HavocPlugin : TerrariaPlugin
                 .OrderByDescending(p => p.MinimumBits)
                 .FirstOrDefault();
         }
-        // 2. Route Chat Commands
         else if (msg.StartsWith("!"))
         {
             string cmd = msg.Split(' ')[0];
@@ -107,21 +144,16 @@ public class HavocPlugin : TerrariaPlugin
         if (pool != null) AttemptManifestation(user, pool);
     }
 
-    // --- MANIFESTATION LOGIC ---
     private void AttemptManifestation(string user, ManifestationPool pool)
     {
-        // Check Global Cooldown for this specific trigger
         if (_cooldowns.TryGetValue(pool.TriggerIdentifier, out var lastUsed) && (DateTime.UtcNow - lastUsed).TotalSeconds < pool.GlobalCooldownSeconds)
             return;
 
-        // Filter out events that violate server progression
         var validEvents = pool.Events.Where(IsProgressionValid).ToList();
         if (validEvents.Count == 0) return;
 
-        // Lock Cooldown
         _cooldowns[pool.TriggerIdentifier] = DateTime.UtcNow;
 
-        // Roll the Dice for the specific event
         int totalWeight = validEvents.Sum(e => e.Weight);
         int roll = Random.Shared.Next(0, totalWeight);
         ChaosEvent? selected = validEvents.Last();
@@ -134,10 +166,10 @@ public class HavocPlugin : TerrariaPlugin
 
         var queuedAction = new QueuedManifestation { Event = selected, Username = user };
 
-        // Route to execution or queue
         if (pool.BypassQueue) 
         {
-            ExecuteEvent(queuedAction); // VIP Instant Execution
+            // Execute immediately, skipping conflict checks (For massive Bit bombs)
+            ExecuteEvent(queuedAction, _targetAccountName ?? "Server"); 
         }
         else 
         {
@@ -147,42 +179,57 @@ public class HavocPlugin : TerrariaPlugin
     }
 
     // --- THE SMART QUEUE PROCESSOR ---
+
     private void ProcessQueueTick(object? sender, ElapsedEventArgs e)
     {
-        if (_actionQueue.IsEmpty) return;
+        if (_actionQueue.IsEmpty || _isProcessingQueue || !_engineAwake || _targetAccountName == null) return;
+        _isProcessingQueue = true;
 
-        // Peek at the next item in line
-        if (_actionQueue.TryPeek(out var nextAction))
+        try
         {
-            string group = nextAction.Event.ConflictGroup;
+            // 1. Identity Resolution
+            var target = TShock.Players.FirstOrDefault(p => 
+                p != null && p.Active && p.IsLoggedIn && 
+                p.Account.Name.Equals(_targetAccountName, StringComparison.OrdinalIgnoreCase));
 
-            // Is this conflict group currently locked?
-            if (_activeConflicts.TryGetValue(group, out var lockedUntil) && DateTime.UtcNow < lockedUntil)
-            {
-                return; // Queue is stalled waiting for the group to clear
-            }
+            if (target == null) return; // Streamer offline/disconnected. Wait infinitely.
 
-            // If clear, dequeue and execute
-            if (_actionQueue.TryDequeue(out var actionToRun))
+            if (_actionQueue.TryPeek(out var nextAction))
             {
-                // Lock the group for the specified duration
-                if (actionToRun.Event.QueueDurationSeconds > 0)
+                string group = nextAction.Event.ConflictGroup;
+
+                // 2. Conflict Group Check
+                if (_activeConflicts.TryGetValue(group, out var lockedUntil) && DateTime.UtcNow < lockedUntil)
+                    return; // Stalled waiting for active group
+
+                // 3. Game State Check (The Corpse Lock)
+                if (nextAction.Event.RequiresTargetAlive && target.TPlayer.dead)
+                    return; // Stalled waiting for respawn
+
+                // 4. Execute
+                if (_actionQueue.TryDequeue(out var actionToRun))
                 {
-                    _activeConflicts[group] = DateTime.UtcNow.AddSeconds(actionToRun.Event.QueueDurationSeconds);
+                    if (actionToRun.Event.QueueDurationSeconds > 0)
+                        _activeConflicts[group] = DateTime.UtcNow.AddSeconds(actionToRun.Event.QueueDurationSeconds);
+                    
+                    ExecuteEvent(actionToRun, target.Name);
                 }
-                
-                ExecuteEvent(actionToRun);
             }
         }
+        catch (Exception ex) { TShock.Log.ConsoleError($"[Havoc] Queue Error: {ex.Message}"); }
+        finally { _isProcessingQueue = false; }
     }
 
-    private void ExecuteEvent(QueuedManifestation action)
+    private void ExecuteEvent(QueuedManifestation action, string targetName)
     {
         TShock.Utils.NextTick(() => {
             foreach (var cmd in action.Event.TShockCommands)
-                Commands.HandleCommand(TSPlayer.Server, cmd.Replace("{user}", action.Username));
+            {
+                string finalCmd = cmd.Replace("{user}", action.Username).Replace("{player}", targetName);
+                Commands.HandleCommand(TSPlayer.Server, finalCmd.TrimStart('/'));
+            }
                 
-            TSPlayer.All.SendMessage($"✨ Twitch chat ({action.Username}) invoked: {action.Event.Name}!", new Microsoft.Xna.Framework.Color(180, 32, 240));
+            TSPlayer.All.SendMessage($"✨ {action.Username} invoked: {action.Event.Name}!", new Microsoft.Xna.Framework.Color(180, 32, 240));
         });
     }
 
@@ -195,6 +242,7 @@ public class HavocPlugin : TerrariaPlugin
     }
 
     // --- UTILITIES ---
+
     private void SendMessageToTwitch(string msg)
     {
         if (_client != null && _client.IsConnected)
@@ -212,18 +260,15 @@ public class HavocPlugin : TerrariaPlugin
         if (args.Parameters.Count == 0) return;
         string cmd = args.Parameters[0].ToLower();
         
-        if (cmd == "start") StartEngine(args.Player);
-        else if (cmd == "stop") { _isActive = false; _queueProcessorTimer?.Stop(); _client?.Disconnect(); }
-        else if (cmd == "clearqueue") { _actionQueue.Clear(); args.Player.SendSuccessMessage("Havoc queue cleared."); }
+        if (cmd == "on") StartHavoc(args.Player);
+        else if (cmd == "off") { StopHavoc(); args.Player.SendSuccessMessage("[Havoc] Engine deactivated."); }
+        else if (cmd == "clearqueue") { _actionQueue.Clear(); args.Player.SendSuccessMessage("[Havoc] Queue cleared."); }
+        else if (cmd == "reload") { LoadConfig(); args.Player.SendSuccessMessage("[Havoc] Config reloaded."); }
     }
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
-        {
-            _queueProcessorTimer?.Dispose();
-            _client?.Disconnect();
-        }
+        if (disposing) StopHavoc();
         base.Dispose(disposing);
     }
 }
