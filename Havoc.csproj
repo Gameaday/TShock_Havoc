@@ -1,38 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework> <ImplicitUsings>enable</ImplicitUsings>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>5.0.5</Version>
-    <Authors>HistoryLabs</Authors>
+    <Version>5.1.0</Version>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="TShock" Version="6.1.0" />
     <PackageReference Include="TwitchLib" Version="3.5.3" />
-    <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.34.1" />
   </ItemGroup>
-
-  <Target Name="MergeDlls" AfterTargets="Publish">
-    <ItemGroup>
-      <MergeAssemblies Include="$(PublishDir)TwitchLib*.dll" />
-      <MergeAssemblies Include="$(PublishDir)ZstdSharp.dll" />
-    </ItemGroup>
-    
-    <ILRepack Parallel="true" 
-              Internalize="true" 
-              InputAssemblies="$(PublishDir)$(AssemblyName).dll;@(MergeAssemblies)" 
-              TargetKind="Dll" 
-              OutputFile="$(PublishDir)$(AssemblyName).dll" 
-              LibraryPath="$(PublishDir)" />
-
-    <ItemGroup>
-      <FilesToDelete Include="$(PublishDir)**\*.*" Exclude="$(PublishDir)$(AssemblyName).dll" />
-    </ItemGroup>
-    <Delete Files="@(FilesToDelete)" />
-  </Target>
 
 </Project>
