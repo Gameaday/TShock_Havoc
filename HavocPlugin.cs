@@ -12,7 +12,6 @@ using TShockAPI;
 using TwitchLib.Client;
 using TwitchLib.Client.Models;
 using TwitchLib.Communication.Clients;
-using TwitchLib.Communication.Models;
 
 #nullable enable
 
@@ -36,12 +35,10 @@ public class HavocPlugin : TerrariaPlugin
     private string ConfigPath => Path.Combine(TShock.SavePath, "Havoc", "HavocConfig.json");
     private HavocConfig _config = new();
 
-    // Session State
     private string? _targetAccountName;
     private bool _engineAwake = false;
     private TwitchClient? _client;
 
-    // Queue State
     private readonly ConcurrentDictionary<string, DateTime> _cooldowns = new();
     private readonly ConcurrentDictionary<string, DateTime> _activeConflicts = new();
     private readonly ConcurrentQueue<QueuedAction> _actionQueue = new();
@@ -57,41 +54,36 @@ public class HavocPlugin : TerrariaPlugin
         Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
         LoadConfig();
 
+        // Build the Semantic Index after Terraria data is fully loaded
+        ServerApi.Hooks.GamePostInitialize.Register(this, (args) => HavocIndex.BuildIndex());
+        
         Commands.ChatCommands.Add(new Command("havoc.admin", AdminCommand, "havoc"));
 
-        _queueTick = new Timer(1000); // 1-second Engine Tick
+        _queueTick = new Timer(1000);
         _queueTick.Elapsed += ProcessSmartQueue;
     }
 
     private void StartHavoc(TSPlayer player)
     {
-        if (!player.IsLoggedIn)
-        {
-            player.SendErrorMessage("[Havoc] You must be logged into a TShock account to become the target.");
-            return;
-        }
-
-        _targetAccountName = player.Account.Name;
+        if (!player.IsLoggedIn) { player.SendErrorMessage("[Havoc] You must be logged in to be the target."); return; }
         
+        _targetAccountName = player.Account.Name;
         if (!_engineAwake)
         {
             ConnectTwitch();
             _queueTick?.Start();
             _engineAwake = true;
         }
-
-        player.SendSuccessMessage($"[Havoc] Session bound to account '{_targetAccountName}'.");
+        player.SendSuccessMessage($"[Havoc] Session bound to '{_targetAccountName}'.");
     }
 
     private void StopHavoc()
     {
         _targetAccountName = null;
         _engineAwake = false;
-        
         _actionQueue.Clear();
         _activeConflicts.Clear();
         _queueTick?.Stop();
-        
         _client?.Disconnect();
         _client = null;
     }
@@ -128,13 +120,10 @@ public class HavocPlugin : TerrariaPlugin
         if (string.IsNullOrWhiteSpace(_config.TwitchBotToken)) return;
 
         var creds = new ConnectionCredentials(_config.TwitchChannelName, _config.TwitchBotToken);
-        var clientOptions = new ClientOptions { MessagesAllowedInPeriod = 20, ThrottlingPeriod = TimeSpan.FromSeconds(30) };
-        
-        _client = new TwitchClient(new WebSocketClient(clientOptions));
+        _client = new TwitchClient(new WebSocketClient(new ClientOptions { MessagesAllowedInPeriod = 20, ThrottlingPeriod = TimeSpan.FromSeconds(30) }));
         _client.Initialize(creds, _config.TwitchChannelName);
         
         _client.OnDisconnected += (s, e) => {
-            TShock.Log.ConsoleWarn("[Havoc] Lost Twitch connection. Reconnecting...");
             Task.Delay(5000).ContinueWith(_ => { if (_engineAwake && !_client.IsConnected) _client.Connect(); });
         };
 
@@ -146,41 +135,25 @@ public class HavocPlugin : TerrariaPlugin
     {
         if (!_engineAwake) return;
 
-        string user = e.ChatMessage.Username;
-        string msg = e.ChatMessage.Message.Trim();
-        int bits = e.ChatMessage.Bits;
-
         ManifestationPool? pool = null;
+        if (e.ChatMessage.Bits > 0)
+            pool = _config.Manifestations.Where(p => p.TriggerType == "Bits" && e.ChatMessage.Bits >= p.MinimumBits).OrderByDescending(p => p.MinimumBits).FirstOrDefault();
+        else if (e.ChatMessage.Message.Trim().StartsWith("!"))
+            pool = _config.Manifestations.FirstOrDefault(p => p.TriggerType == "Chat" && p.TriggerIdentifier.Equals(e.ChatMessage.Message.Trim().Split(' ')[0], StringComparison.OrdinalIgnoreCase));
 
-        if (bits > 0)
-        {
-            pool = _config.Manifestations
-                .Where(p => p.TriggerType == "Bits" && bits >= p.MinimumBits)
-                .OrderByDescending(p => p.MinimumBits)
-                .FirstOrDefault();
-        }
-        else if (msg.StartsWith("!"))
-        {
-            string cmd = msg.Split(' ')[0];
-            pool = _config.Manifestations.FirstOrDefault(p => 
-                p.TriggerType == "Chat" && p.TriggerIdentifier.Equals(cmd, StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (pool != null) AttemptManifestation(user, pool);
+        if (pool != null) AttemptManifestation(e.ChatMessage.Username, pool);
     }
 
     private void AttemptManifestation(string user, ManifestationPool pool)
     {
-        if (_cooldowns.TryGetValue(pool.TriggerIdentifier, out var lastUsed) && (DateTime.UtcNow - lastUsed).TotalSeconds < pool.GlobalCooldownSeconds)
-            return;
+        if (_cooldowns.TryGetValue(pool.TriggerIdentifier, out var lastUsed) && (DateTime.UtcNow - lastUsed).TotalSeconds < pool.GlobalCooldownSeconds) return;
 
         var validEvents = pool.Events.Where(IsProgressionValid).ToList();
         if (validEvents.Count == 0) return;
 
         _cooldowns[pool.TriggerIdentifier] = DateTime.UtcNow;
 
-        int totalWeight = validEvents.Sum(e => e.Weight);
-        int roll = Random.Shared.Next(0, totalWeight);
+        int roll = Random.Shared.Next(0, validEvents.Sum(e => e.Weight));
         ChaosEvent? selected = validEvents.Last();
 
         foreach (var e in validEvents)
@@ -191,15 +164,11 @@ public class HavocPlugin : TerrariaPlugin
 
         var queuedAction = new QueuedAction { Event = selected, ParentPool = pool, Username = user };
 
-        if (pool.BypassQueue) ExecuteCommands(queuedAction, TShock.Players.FirstOrDefault(p => p != null && p.Account?.Name == _targetAccountName)); 
+        if (pool.BypassQueue) ExecuteCommands(queuedAction, TShock.Players.FirstOrDefault(p => p?.Account?.Name == _targetAccountName)); 
         else _actionQueue.Enqueue(queuedAction);
     }
 
-    private void SendMessageToTwitch(string msg)
-    {
-        if (_client != null && _client.IsConnected)
-            _client.SendMessage(_config.TwitchChannelName, msg);
-    }
+    private void SendMessageToTwitch(string msg) { if (_client?.IsConnected == true) _client.SendMessage(_config.TwitchChannelName, msg); }
 
     #endregion
 
@@ -212,15 +181,8 @@ public class HavocPlugin : TerrariaPlugin
 
         try
         {
-            // 1. Identity Resolution
-            var target = TShock.Players.FirstOrDefault(p => 
-                p != null && p.Active && p.IsLoggedIn && 
-                p.Account.Name.Equals(_targetAccountName, StringComparison.OrdinalIgnoreCase));
-
-            if (target == null) return; // Stalled: Target offline
-
-            // 2. State Sanitization (The Delicate Check)
-            if (HavocLibrary.IsInInvalidState(target)) return; // Wait 1 tick for coords to stabilize
+            var target = TShock.Players.FirstOrDefault(p => p != null && p.Active && p.IsLoggedIn && p.Account.Name.Equals(_targetAccountName, StringComparison.OrdinalIgnoreCase));
+            if (target == null || HavocLibrary.IsInInvalidState(target)) return; // Stalled: Offline or transitioning
 
             List<QueuedAction> toExecute = new();
 
@@ -230,38 +192,24 @@ public class HavocPlugin : TerrariaPlugin
                 if (!IsSituationallyValid(nextAction.Event, target))
                 {
                     PerformJitReroll(nextAction, target);
-                    return; // Yield tick to re-evaluate the newly mutated event next second
+                    return; // Yield tick to re-evaluate
                 }
 
-                // Conflict Check
-                string group = nextAction.Event.ConflictGroup;
-                if (_activeConflicts.TryGetValue(group, out var expiry) && DateTime.UtcNow < expiry)
-                    return; 
+                if (_activeConflicts.TryGetValue(nextAction.Event.ConflictGroup, out var expiry) && DateTime.UtcNow < expiry) return; 
+                if (nextAction.Event.RequiresTargetAlive && target.TPlayer.dead) return; 
 
-                // Corpse Lock
-                if (nextAction.Event.RequiresTargetAlive && target.TPlayer.dead)
-                    return; 
-
-                // Batching Execution Logic
+                // Batching Logic
                 if (nextAction.ParentPool.Tier.Equals("Minor", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Batch up to 5 Minor events
                     while (toExecute.Count < 5 && _actionQueue.TryDequeue(out var batchItem))
                     {
                         toExecute.Add(batchItem);
-                        if (_actionQueue.TryPeek(out var upcoming) && !upcoming.ParentPool.Tier.Equals("Minor", StringComparison.OrdinalIgnoreCase)) 
-                            break; // Stop batching if a Major event is next
+                        if (_actionQueue.TryPeek(out var upcoming) && !upcoming.ParentPool.Tier.Equals("Minor", StringComparison.OrdinalIgnoreCase)) break;
                     }
                 }
-                else
-                {
-                    // Major events fire Solo
-                    if (_actionQueue.TryDequeue(out var soloItem))
-                        toExecute.Add(soloItem);
-                }
+                else if (_actionQueue.TryDequeue(out var soloItem)) toExecute.Add(soloItem);
             }
 
-            // 3. Execution Phase
             if (toExecute.Count > 0)
             {
                 TShock.Utils.NextTick(() => {
@@ -280,28 +228,16 @@ public class HavocPlugin : TerrariaPlugin
 
     private void PerformJitReroll(QueuedAction action, TSPlayer target)
     {
-        var validEvents = action.ParentPool.Events
-            .Where(ev => IsProgressionValid(ev) && IsSituationallyValid(ev, target)).ToList();
-
+        var validEvents = action.ParentPool.Events.Where(ev => IsProgressionValid(ev) && IsSituationallyValid(ev, target)).ToList();
         if (validEvents.Count > 0)
         {
-            int totalWeight = validEvents.Sum(ev => ev.Weight);
-            int roll = Random.Shared.Next(0, totalWeight);
-            ChaosEvent? selected = validEvents.Last();
-
-            foreach (var ev in validEvents)
-            {
-                if (roll < ev.Weight) { selected = ev; break; }
-                roll -= ev.Weight;
-            }
-
-            action.Event = selected; // Mutate in-place
-            SendMessageToTwitch($"♻️ @{action.Username}, the world resisted. Manifestation shifted to: '{selected.Name}'!");
+            int roll = Random.Shared.Next(0, validEvents.Sum(ev => ev.Weight));
+            foreach (var ev in validEvents) { if (roll < ev.Weight) { action.Event = ev; break; } roll -= ev.Weight; }
+            SendMessageToTwitch($"♻️ @{action.Username}, the world resisted. Manifestation shifted to: '{action.Event.Name}'!");
         }
         else
         {
-            _actionQueue.TryDequeue(out _); // Exhausted pool
-            SendMessageToTwitch($"❌ @{action.Username}, target is at maximum power. (Redemption dropped)");
+            _actionQueue.TryDequeue(out _);
         }
     }
 
@@ -309,21 +245,24 @@ public class HavocPlugin : TerrariaPlugin
     {
         if (target == null) return;
 
-        // Convert raw positional data to Tile Coordinates for stable TShock spawning
-        int tx = target.TileX;
-        int ty = target.TileY;
+        List<string> commandsToRun = new();
 
-        foreach (var cmd in action.Event.TShockCommands)
+        // SEMANTIC RESOLUTION
+        if (action.Event.DynamicQuery != null)
+            commandsToRun.AddRange(HavocIndex.ResolveQuery(action.Event.DynamicQuery, target.Name, target.TileX, target.TileY));
+        else // FALLBACK
+            commandsToRun.AddRange(action.Event.TShockCommands);
+
+        foreach (var cmd in commandsToRun)
         {
             string finalCmd = cmd.Replace("{user}", action.Username)
                                  .Replace("{player}", target.Name)
-                                 .Replace("{tx}", tx.ToString())
-                                 .Replace("{ty}", ty.ToString());
-
+                                 .Replace("{tx}", target.TileX.ToString())
+                                 .Replace("{ty}", target.TileY.ToString());
             Commands.HandleCommand(TSPlayer.Server, finalCmd.TrimStart('/'));
         }
         
-        TSPlayer.All.SendMessage($"✨ Twitch Chat ({action.Username}) invoked: {action.Event.Name}!", new Microsoft.Xna.Framework.Color(180, 32, 240));
+        TSPlayer.All.SendMessage($"✨ {action.Username} invoked: {action.Event.Name}!", new Microsoft.Xna.Framework.Color(180, 32, 240));
     }
 
     private bool IsProgressionValid(ChaosEvent e)
@@ -336,15 +275,10 @@ public class HavocPlugin : TerrariaPlugin
 
     private bool IsSituationallyValid(ChaosEvent e, TSPlayer target)
     {
-        if (e.BlockedIfFullHealth && target.TPlayer.statLife >= target.TPlayer.statLifeMax2)
-            return false;
-
-        foreach (var buffId in e.BlockedByBuffIDs)
-        {
-            if (target.TPlayer.buffType.Contains(buffId))
-                return false;
-        }
-
+        if (e.BlockedIfFullHealth && target.TPlayer.statLife >= target.TPlayer.statLifeMax2) return false;
+        if (e.BlockedIfBossAlive && HavocLibrary.IsAnyBossActive()) return false;
+        if (e.BlockedIfEventActive && HavocLibrary.IsWorldEventActive()) return false;
+        if (e.BlockedByBuffIDs.Any(id => target.TPlayer.buffType.Contains(id))) return false;
         return true;
     }
 
