@@ -282,4 +282,32 @@ public class HavocPlugin : TerrariaPlugin
                 string finalCmd = cmd.Replace("{user}", action.Username).Replace("{player}", targetName);
                 Commands.HandleCommand(TSPlayer.Server, finalCmd.TrimStart('/'));
             }
-            TSPlayer.All.SendMessage($"✨ Twitch Chat ({action.Username}) invoked: {action.Event.Name}!", new Microsoft.Xna.Framework.Color(180, 32, 24
+            TSPlayer.All.SendMessage($"✨ Twitch Chat ({action.Username}) invoked: {action.Event.Name}!", new Microsoft.Xna.Framework.Color(180, 32, 240));
+        });
+    }
+
+    private bool IsProgressionValid(ChaosEvent e)
+    {
+        if (e.MinimumProgression.Equals("Hardmode", StringComparison.OrdinalIgnoreCase) && !Main.hardMode) return false;
+        if (e.MinimumProgression.Equals("PostPlantera", StringComparison.OrdinalIgnoreCase) && !NPC.downedPlantBoss) return false;
+        if (e.MaximumProgression.Equals("PreHardmode", StringComparison.OrdinalIgnoreCase) && Main.hardMode) return false;
+        return true;
+    }
+
+    private bool IsSituationallyValid(ChaosEvent e, TSPlayer target)
+    {
+        if (e.BlockedIfFullHealth && target.TPlayer.statLife >= target.TPlayer.statLifeMax2)
+            return false;
+
+        foreach (var buffName in e.BlockedIfHasBuffs)
+        {
+            var matchedBuffs = TShock.Utils.GetBuffByName(buffName);
+            if (matchedBuffs.Count > 0 && target.TPlayer.buffType.Contains(matchedBuffs[0]))
+                return false;
+        }
+
+        return true;
+    }
+
+    #endregion
+}
