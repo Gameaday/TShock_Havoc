@@ -4,7 +4,8 @@
 Havoc is a rock-solid, completely stateless bridge between Twitch and TShock. Built for performance, it features an intelligent Semantic Query Engine that allows viewers to interact with the game world using traits and tags rather than hardcoded IDs.
 
 ---
-
+[![Build and Release Havoc](https://github.com/Gameaday/TShock_Havoc/actions/workflows/release.yaml/badge.svg)](https://github.com/Gameaday/TShock_Havoc/actions/workflows/release.yaml)
+---
 ## Features
 
 * **Semantic Query Engine**: Viewers can request "Appropriate Melee Weapons" or "Overpowered Flying Enemies." Havoc indexes Terraria's internal memory to find the perfect match for the current world tier.
