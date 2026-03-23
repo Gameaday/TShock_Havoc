@@ -20,6 +20,7 @@ namespace Havoc;
 public class QueuedManifestation
 {
     public ChaosEvent Event { get; set; } = new();
+    public ManifestationPool Pool { get; set; } = new(); // Carries the parent pool
     public string Username { get; set; } = "";
 }
 
