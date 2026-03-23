@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -17,18 +18,19 @@ using TwitchLib.Communication.Models;
 
 namespace Havoc;
 
-public class QueuedManifestation
+public class QueuedAction
 {
     public ChaosEvent Event { get; set; } = new();
-    public ManifestationPool Pool { get; set; } = new();
+    public ManifestationPool ParentPool { get; set; } = new();
     public string Username { get; set; } = "";
+    public DateTime QueuedAt { get; set; } = DateTime.UtcNow;
 }
 
 [ApiVersion(2, 1)]
 public class HavocPlugin : TerrariaPlugin
 {
-    public override string Name => "Havoc Engine";
-    public override Version Version => new Version(4, 1, 0);
+    public override string Name => "Havoc Engine Pro";
+    public override Version Version => new Version(5, 0, 0);
     public override string Author => "HistoryLabs";
 
     private string ConfigPath => Path.Combine(TShock.SavePath, "Havoc", "HavocConfig.json");
@@ -37,14 +39,12 @@ public class HavocPlugin : TerrariaPlugin
     // Session State
     private string? _targetAccountName;
     private bool _engineAwake = false;
-
-    // Twitch State
     private TwitchClient? _client;
 
     // Queue State
     private readonly ConcurrentDictionary<string, DateTime> _cooldowns = new();
     private readonly ConcurrentDictionary<string, DateTime> _activeConflicts = new();
-    private readonly ConcurrentQueue<QueuedManifestation> _actionQueue = new();
+    private readonly ConcurrentQueue<QueuedAction> _actionQueue = new();
     private Timer? _queueTick;
     private bool _isProcessingQueue = false;
 
@@ -59,8 +59,8 @@ public class HavocPlugin : TerrariaPlugin
 
         Commands.ChatCommands.Add(new Command("havoc.admin", AdminCommand, "havoc"));
 
-        _queueTick = new Timer(1000);
-        _queueTick.Elapsed += ProcessQueueTick;
+        _queueTick = new Timer(1000); // 1-second Engine Tick
+        _queueTick.Elapsed += ProcessSmartQueue;
     }
 
     private void StartHavoc(TSPlayer player)
@@ -129,13 +129,12 @@ public class HavocPlugin : TerrariaPlugin
 
         var creds = new ConnectionCredentials(_config.TwitchChannelName, _config.TwitchBotToken);
         var clientOptions = new ClientOptions { MessagesAllowedInPeriod = 20, ThrottlingPeriod = TimeSpan.FromSeconds(30) };
-        WebSocketClient customClient = new WebSocketClient(clientOptions);
         
-        _client = new TwitchClient(customClient);
+        _client = new TwitchClient(new WebSocketClient(clientOptions));
         _client.Initialize(creds, _config.TwitchChannelName);
         
         _client.OnDisconnected += (s, e) => {
-            TShock.Log.ConsoleWarn("[Havoc] Lost connection to Twitch. Reconnecting...");
+            TShock.Log.ConsoleWarn("[Havoc] Lost Twitch connection. Reconnecting...");
             Task.Delay(5000).ContinueWith(_ => { if (_engineAwake && !_client.IsConnected) _client.Connect(); });
         };
 
@@ -190,9 +189,9 @@ public class HavocPlugin : TerrariaPlugin
             roll -= e.Weight;
         }
 
-        var queuedAction = new QueuedManifestation { Event = selected, Pool = pool, Username = user };
+        var queuedAction = new QueuedAction { Event = selected, ParentPool = pool, Username = user };
 
-        if (pool.BypassQueue) ExecuteEvent(queuedAction, _targetAccountName ?? "Server"); 
+        if (pool.BypassQueue) ExecuteCommands(queuedAction, TShock.Players.FirstOrDefault(p => p != null && p.Account?.Name == _targetAccountName)); 
         else _actionQueue.Enqueue(queuedAction);
     }
 
@@ -206,84 +205,125 @@ public class HavocPlugin : TerrariaPlugin
 
     #region THE SMART QUEUE & GAME LOGIC
 
-    private void ProcessQueueTick(object? sender, ElapsedEventArgs e)
+    private void ProcessSmartQueue(object? sender, ElapsedEventArgs e)
     {
         if (_actionQueue.IsEmpty || _isProcessingQueue || !_engineAwake || _targetAccountName == null) return;
         _isProcessingQueue = true;
 
         try
         {
+            // 1. Identity Resolution
             var target = TShock.Players.FirstOrDefault(p => 
                 p != null && p.Active && p.IsLoggedIn && 
                 p.Account.Name.Equals(_targetAccountName, StringComparison.OrdinalIgnoreCase));
 
-            if (target == null) return; // Target offline: Stalls the queue infinitely until return
+            if (target == null) return; // Stalled: Target offline
+
+            // 2. State Sanitization (The Delicate Check)
+            if (HavocLibrary.IsInInvalidState(target)) return; // Wait 1 tick for coords to stabilize
+
+            List<QueuedAction> toExecute = new();
 
             if (_actionQueue.TryPeek(out var nextAction))
             {
-                // 1. THE RE-ROLL ENGINE
+                // JIT Re-Roll Engine
                 if (!IsSituationallyValid(nextAction.Event, target))
                 {
-                    var validEvents = nextAction.Pool.Events
-                        .Where(ev => IsProgressionValid(ev) && IsSituationallyValid(ev, target)).ToList();
-
-                    if (validEvents.Count > 0)
-                    {
-                        int totalWeight = validEvents.Sum(ev => ev.Weight);
-                        int roll = Random.Shared.Next(0, totalWeight);
-                        ChaosEvent? selected = validEvents.Last();
-
-                        foreach (var ev in validEvents)
-                        {
-                            if (roll < ev.Weight) { selected = ev; break; }
-                            roll -= ev.Weight;
-                        }
-
-                        nextAction.Event = selected; // Mutate for next tick
-                        SendMessageToTwitch($"♻️ @{nextAction.Username}, the world resisted. Your manifestation shifted into '{selected.Name}'!");
-                        return; 
-                    }
-                    else
-                    {
-                        _actionQueue.TryDequeue(out _); // Discard entirely
-                        SendMessageToTwitch($"❌ @{nextAction.Username}, you tried to help, but they are already at maximum power. (Redemption dropped)");
-                        return; 
-                    }
+                    PerformJitReroll(nextAction, target);
+                    return; // Yield tick to re-evaluate the newly mutated event next second
                 }
 
-                // 2. CONFLICT CHECK
+                // Conflict Check
                 string group = nextAction.Event.ConflictGroup;
                 if (_activeConflicts.TryGetValue(group, out var expiry) && DateTime.UtcNow < expiry)
                     return; 
 
-                // 3. CORPSE LOCK
+                // Corpse Lock
                 if (nextAction.Event.RequiresTargetAlive && target.TPlayer.dead)
                     return; 
 
-                // 4. EXECUTION
-                if (_actionQueue.TryDequeue(out var actionToRun))
+                // Batching Execution Logic
+                if (nextAction.ParentPool.Tier.Equals("Minor", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (actionToRun.Event.QueueDurationSeconds > 0)
-                        _activeConflicts[group] = DateTime.UtcNow.AddSeconds(actionToRun.Event.QueueDurationSeconds);
-                    
-                    ExecuteEvent(actionToRun, target.Name);
+                    // Batch up to 5 Minor events
+                    while (toExecute.Count < 5 && _actionQueue.TryDequeue(out var batchItem))
+                    {
+                        toExecute.Add(batchItem);
+                        if (_actionQueue.TryPeek(out var upcoming) && !upcoming.ParentPool.Tier.Equals("Minor", StringComparison.OrdinalIgnoreCase)) 
+                            break; // Stop batching if a Major event is next
+                    }
                 }
+                else
+                {
+                    // Major events fire Solo
+                    if (_actionQueue.TryDequeue(out var soloItem))
+                        toExecute.Add(soloItem);
+                }
+            }
+
+            // 3. Execution Phase
+            if (toExecute.Count > 0)
+            {
+                TShock.Utils.NextTick(() => {
+                    foreach (var action in toExecute)
+                    {
+                        ExecuteCommands(action, target);
+                        if (action.Event.QueueDurationSeconds > 0)
+                            _activeConflicts[action.Event.ConflictGroup] = DateTime.UtcNow.AddSeconds(action.Event.QueueDurationSeconds);
+                    }
+                });
             }
         }
         catch (Exception ex) { TShock.Log.ConsoleError($"[Havoc] Queue Error: {ex.Message}"); }
         finally { _isProcessingQueue = false; }
     }
 
-    private void ExecuteEvent(QueuedManifestation action, string targetName)
+    private void PerformJitReroll(QueuedAction action, TSPlayer target)
     {
-        TShock.Utils.NextTick(() => {
-            foreach (var cmd in action.Event.TShockCommands)
+        var validEvents = action.ParentPool.Events
+            .Where(ev => IsProgressionValid(ev) && IsSituationallyValid(ev, target)).ToList();
+
+        if (validEvents.Count > 0)
+        {
+            int totalWeight = validEvents.Sum(ev => ev.Weight);
+            int roll = Random.Shared.Next(0, totalWeight);
+            ChaosEvent? selected = validEvents.Last();
+
+            foreach (var ev in validEvents)
             {
-                string finalCmd = cmd.Replace("{user}", action.Username).Replace("{player}", targetName);
-                Commands.HandleCommand(TSPlayer.Server, finalCmd.TrimStart('/'));
+                if (roll < ev.Weight) { selected = ev; break; }
+                roll -= ev.Weight;
             }
-            TSPlayer.All.SendMessage($"✨ Twitch Chat ({action.Username}) invoked: {action.Event.Name}!", new Microsoft.Xna.Framework.Color(180, 32, 240));
-        });
+
+            action.Event = selected; // Mutate in-place
+            SendMessageToTwitch($"♻️ @{action.Username}, the world resisted. Manifestation shifted to: '{selected.Name}'!");
+        }
+        else
+        {
+            _actionQueue.TryDequeue(out _); // Exhausted pool
+            SendMessageToTwitch($"❌ @{action.Username}, target is at maximum power. (Redemption dropped)");
+        }
+    }
+
+    private void ExecuteCommands(QueuedAction action, TSPlayer? target)
+    {
+        if (target == null) return;
+
+        // Convert raw positional data to Tile Coordinates for stable TShock spawning
+        int tx = target.TileX;
+        int ty = target.TileY;
+
+        foreach (var cmd in action.Event.TShockCommands)
+        {
+            string finalCmd = cmd.Replace("{user}", action.Username)
+                                 .Replace("{player}", target.Name)
+                                 .Replace("{tx}", tx.ToString())
+                                 .Replace("{ty}", ty.ToString());
+
+            Commands.HandleCommand(TSPlayer.Server, finalCmd.TrimStart('/'));
+        }
+        
+        TSPlayer.All.SendMessage($"✨ Twitch Chat ({action.Username}) invoked: {action.Event.Name}!", new Microsoft.Xna.Framework.Color(180, 32, 240));
     }
 
     private bool IsProgressionValid(ChaosEvent e)
@@ -299,10 +339,9 @@ public class HavocPlugin : TerrariaPlugin
         if (e.BlockedIfFullHealth && target.TPlayer.statLife >= target.TPlayer.statLifeMax2)
             return false;
 
-        foreach (var buffName in e.BlockedIfHasBuffs)
+        foreach (var buffId in e.BlockedByBuffIDs)
         {
-            var matchedBuffs = TShock.Utils.GetBuffByName(buffName);
-            if (matchedBuffs.Count > 0 && target.TPlayer.buffType.Contains(matchedBuffs[0]))
+            if (target.TPlayer.buffType.Contains(buffId))
                 return false;
         }
 
