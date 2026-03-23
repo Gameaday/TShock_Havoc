@@ -7,7 +7,7 @@ namespace Havoc;
 public class HavocConfig
 {
     public bool Enabled { get; set; } = true;
-    public string TwitchBotToken { get; set; } = ""; // IRC OAuth Token
+    public string TwitchBotToken { get; set; } = ""; 
     public string TwitchChannelName { get; set; } = "";
     
     public List<ManifestationPool> Manifestations { get; set; } = new();
@@ -20,7 +20,8 @@ public class ManifestationPool
     public int MinimumBits { get; set; } = 0;
     
     public int GlobalCooldownSeconds { get; set; } = 30;
-    public bool BypassQueue { get; set; } = false; // Set to true for high-tier Bit pools to instantly execute
+    public bool BypassQueue { get; set; } = false; 
+    public string Tier { get; set; } = "Minor"; // "Minor" batches up to 5. "Major" executes solo.
     
     public List<ChaosEvent> Events { get; set; } = new();
 }
@@ -35,9 +36,9 @@ public class ChaosEvent
     public int QueueDurationSeconds { get; set; } = 0; 
     public bool RequiresTargetAlive { get; set; } = false; 
     
-    // NEW: Situational Awareness (Re-Roll Triggers)
+    // Situational Awareness (JIT Re-roll)
     public bool BlockedIfFullHealth { get; set; } = false;
-    public List<string> BlockedIfHasBuffs { get; set; } = new(); 
+    public List<int> BlockedByBuffIDs { get; set; } = new(); 
     
     // Progression Locks
     public string MinimumProgression { get; set; } = "Any"; 
@@ -45,6 +46,8 @@ public class ChaosEvent
     
     public List<string> TShockCommands { get; set; } = new();
 }
+
+// Required for TShock/.NET JSON trimming compatibility
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(HavocConfig))]
 internal partial class HavocJsonContext : JsonSerializerContext { }
