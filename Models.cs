@@ -7,43 +7,54 @@ namespace Havoc;
 public class HavocConfig
 {
     public bool Enabled { get; set; } = true;
-    public string TwitchBotToken { get; set; } = ""; // IRC Token
+    public string TwitchBotToken { get; set; } = ""; // IRC OAuth Token
     public string TwitchChannelName { get; set; } = "";
-    
-    // NEW: Needed for Channel Points (PubSub)
-    public string TwitchChannelId { get; set; } = ""; 
-    public string TwitchPubSubToken { get; set; } = ""; 
-    
     public string ArchiveDbPath { get; set; } = "tshock/Metatron/Archive.sqlite";
-    public ulong StreamerDiscordId { get; set; } = 0;
     
-    public List<ChaosPool> Pools { get; set; } = new();
+    public EssenceSystemConfig EssenceSystem { get; set; } = new();
+    public WordingConfig Wording { get; set; } = new();
+    public List<ManifestationPool> Manifestations { get; set; } = new();
 }
 
-public class ChaosPool
+public class EssenceSystemConfig
 {
-    // "Chat", "Reward", or "Bits"
-    public string TriggerType { get; set; } = "Chat"; 
-    
-    // The chat command (e.g., "!annoy") OR the exact name of the Twitch Reward
-    public string TriggerIdentifier { get; set; } = ""; 
-    
-    // NEW: The bit threshold required to trigger this pool
-    public int MinimumBits { get; set; } = 0; 
-    
-    public int CooldownSeconds { get; set; } = 60;
+    public int BitsToEssenceMultiplier { get; set; } = 10;
+    public int RiftIntervalMinMinutes { get; set; } = 15;
+    public int RiftIntervalMaxMinutes { get; set; } = 45;
+    public int RiftMinAbsorb { get; set; } = 50;
+    public int RiftMaxAbsorb { get; set; } = 250;
+    public int BatchingIntervalSeconds { get; set; } = 15;
+}
+
+public class WordingConfig
+{
+    public List<string> RiftAnnouncements { get; set; } = new()
+    {
+        "🌀 A Rift is leaking Essence! Type {code} to absorb the energy!",
+        "✨ Aetheric fragments are falling. Absorb them with {code}!"
+    };
+    public string SuccessfulAbsorb { get; set; } = "Energy absorbed by @{user}! You gained {amount} Essence.";
+    public string InsufficientEssence { get; set; } = "@{user}, you do not have enough Essence to manifest this. Check your !aura.";
+    public string ResonanceHeader { get; set; } = "✨ Essence Resonated: ";
+}
+
+public class ManifestationPool
+{
+    public string Trigger { get; set; } = ""; // e.g., "boss"
+    public int EssenceRequired { get; set; } = 500;
+    public int GlobalCooldownSeconds { get; set; } = 60;
     public List<ChaosEvent> Events { get; set; } = new();
 }
 
 public class ChaosEvent
 {
     public string Name { get; set; } = "";
-    public int Weight { get; set; } = 100; 
-    public List<string> TShockCommands { get; set; } = new(); 
+    public int Weight { get; set; } = 100;
+    public string MinimumProgression { get; set; } = "Any"; // Any, Hardmode, PostPlantera
+    public string MaximumProgression { get; set; } = "Any";
     public int DurationSeconds { get; set; } = 0;
+    public List<string> TShockCommands { get; set; } = new();
     public List<string> RevertCommands { get; set; } = new();
-    public string MinimumProgression { get; set; } = "Any"; 
-    public string MaximumProgression { get; set; } = "Any"; 
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
