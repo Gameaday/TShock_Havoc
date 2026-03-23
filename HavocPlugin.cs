@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Timers; 
 using Terraria;
 using TerrariaApi.Server;
 using TShockAPI;
@@ -29,7 +28,7 @@ public class QueuedAction
 public class HavocPlugin : TerrariaPlugin
 {
     public override string Name => "Havoc Engine Pro";
-    public override Version Version => new Version(5, 0, 1);
+    public override Version Version => new Version(5, 0, 2);
     public override string Author => "HistoryLabs";
 
     private string ConfigPath => Path.Combine(TShock.SavePath, "Havoc", "HavocConfig.json");
@@ -43,8 +42,8 @@ public class HavocPlugin : TerrariaPlugin
     private readonly ConcurrentDictionary<string, DateTime> _activeConflicts = new();
     private readonly ConcurrentQueue<QueuedAction> _actionQueue = new();
     
-    // EXPLICIT DEFINITION HERE TO FIX CS0104
-    private System.Timers.Timer? _queueTick;
+    // NATIVE ENGINE SYNC: Replaces the Timer completely
+    private int _tickCounter = 0;
     private bool _isProcessingQueue = false;
 
     public HavocPlugin(Main game) : base(game) { }
@@ -56,25 +55,25 @@ public class HavocPlugin : TerrariaPlugin
         LoadConfig();
 
         ServerApi.Hooks.GamePostInitialize.Register(this, (args) => HavocIndex.BuildIndex());
+        
+        // Hook natively into Terraria's 60 FPS update loop
+        ServerApi.Hooks.GameUpdate.Register(this, OnGameUpdate);
+        
         Commands.ChatCommands.Add(new Command("havoc.admin", AdminCommand, "havoc"));
-
-        // EXPLICIT DEFINITION HERE TO FIX CS0104
-        _queueTick = new System.Timers.Timer(1000);
-        _queueTick.Elapsed += ProcessSmartQueue;
     }
 
     private void StartHavoc(TSPlayer player)
     {
         if (!player.IsLoggedIn) { player.SendErrorMessage("[Havoc] You must be logged in to be the target."); return; }
         _targetAccountName = player.Account.Name;
-        if (!_engineAwake) { ConnectTwitch(); _queueTick?.Start(); _engineAwake = true; }
+        if (!_engineAwake) { ConnectTwitch(); _engineAwake = true; }
         player.SendSuccessMessage($"[Havoc] Session bound to '{_targetAccountName}'.");
     }
 
     private void StopHavoc()
     {
         _targetAccountName = null; _engineAwake = false;
-        _actionQueue.Clear(); _activeConflicts.Clear(); _queueTick?.Stop();
+        _actionQueue.Clear(); _activeConflicts.Clear(); _tickCounter = 0;
         _client?.Disconnect(); _client = null;
     }
 
@@ -93,7 +92,15 @@ public class HavocPlugin : TerrariaPlugin
         else if (cmd == "reload") { LoadConfig(); args.Player.SendSuccessMessage("[Havoc] Reloaded."); }
     }
 
-    protected override void Dispose(bool disposing) { if (disposing) StopHavoc(); base.Dispose(disposing); }
+    protected override void Dispose(bool disposing) 
+    { 
+        if (disposing) 
+        {
+            ServerApi.Hooks.GameUpdate.Deregister(this, OnGameUpdate);
+            StopHavoc(); 
+        }
+        base.Dispose(disposing); 
+    }
     #endregion
 
     #region TWITCH
@@ -135,9 +142,23 @@ public class HavocPlugin : TerrariaPlugin
     #endregion
 
     #region SMART QUEUE & EXECUTION
-    private void ProcessSmartQueue(object? sender, ElapsedEventArgs e)
+    
+    // Hooks directly into Terraria's 60 Frames-Per-Second engine loop
+    private void OnGameUpdate(EventArgs args)
     {
-        if (_actionQueue.IsEmpty || _isProcessingQueue || !_engineAwake || _targetAccountName == null) return;
+        if (!_engineAwake) return;
+
+        _tickCounter++;
+        if (_tickCounter >= 60) // 60 Ticks = exactly 1 real-world second
+        {
+            _tickCounter = 0;
+            ProcessSmartQueue();
+        }
+    }
+
+    private void ProcessSmartQueue()
+    {
+        if (_actionQueue.IsEmpty || _isProcessingQueue || _targetAccountName == null) return;
         _isProcessingQueue = true;
 
         try
@@ -163,14 +184,13 @@ public class HavocPlugin : TerrariaPlugin
                 else if (_actionQueue.TryDequeue(out var soloItem)) toExecute.Add(soloItem);
             }
 
+            // Because this is running inside OnGameUpdate, we are safely on the Main Thread. No NextTick required!
             if (toExecute.Count > 0)
             {
-                TShock.Utils.NextTick(() => {
-                    foreach (var action in toExecute) {
-                        ExecuteAction(action, target);
-                        if (action.Event.QueueDurationSeconds > 0) _activeConflicts[action.Event.ConflictGroup] = DateTime.UtcNow.AddSeconds(action.Event.QueueDurationSeconds);
-                    }
-                });
+                foreach (var action in toExecute) {
+                    ExecuteAction(action, target);
+                    if (action.Event.QueueDurationSeconds > 0) _activeConflicts[action.Event.ConflictGroup] = DateTime.UtcNow.AddSeconds(action.Event.QueueDurationSeconds);
+                }
             }
         }
         catch (Exception ex) { TShock.Log.ConsoleError($"[Havoc] Queue Error: {ex.Message}"); }
