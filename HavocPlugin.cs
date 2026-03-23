@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Timers;
+using System.Timers; 
 using Terraria;
 using TerrariaApi.Server;
 using TShockAPI;
@@ -29,7 +29,7 @@ public class QueuedAction
 public class HavocPlugin : TerrariaPlugin
 {
     public override string Name => "Havoc Engine Pro";
-    public override Version Version => new Version(5, 0, 0);
+    public override Version Version => new Version(5, 0, 1);
     public override string Author => "HistoryLabs";
 
     private string ConfigPath => Path.Combine(TShock.SavePath, "Havoc", "HavocConfig.json");
@@ -42,7 +42,9 @@ public class HavocPlugin : TerrariaPlugin
     private readonly ConcurrentDictionary<string, DateTime> _cooldowns = new();
     private readonly ConcurrentDictionary<string, DateTime> _activeConflicts = new();
     private readonly ConcurrentQueue<QueuedAction> _actionQueue = new();
-    private Timer? _queueTick;
+    
+    // EXPLICIT DEFINITION HERE TO FIX CS0104
+    private System.Timers.Timer? _queueTick;
     private bool _isProcessingQueue = false;
 
     public HavocPlugin(Main game) : base(game) { }
@@ -56,6 +58,7 @@ public class HavocPlugin : TerrariaPlugin
         ServerApi.Hooks.GamePostInitialize.Register(this, (args) => HavocIndex.BuildIndex());
         Commands.ChatCommands.Add(new Command("havoc.admin", AdminCommand, "havoc"));
 
+        // EXPLICIT DEFINITION HERE TO FIX CS0104
         _queueTick = new System.Timers.Timer(1000);
         _queueTick.Elapsed += ProcessSmartQueue;
     }
@@ -198,7 +201,7 @@ public class HavocPlugin : TerrariaPlugin
         }
         else commands.AddRange(action.Event.TShockCommands);
 
-        if (commands.Count == 0) return; // Query failed to find a match
+        if (commands.Count == 0) return;
 
         foreach (var cmd in commands)
         {
@@ -231,7 +234,7 @@ public class HavocPlugin : TerrariaPlugin
     {
         if (e.BlockedIfFullHealth && target.TPlayer.statLife >= target.TPlayer.statLifeMax2) return false;
         if (e.BlockedIfBossAlive && Main.npc.Any(n => n?.active == true && n.boss)) return false;
-        if (e.BlockedIfEventActive && (Main.bloodMoon || Main.eclipse || Main.slimeRain)) return false;
+        if (e.BlockedIfEventActive && (Main.bloodMoon || Main.eclipse || (Main.slimeRain && Main.netMode != 0))) return false;
         if (e.BlockedByBuffIDs.Any(id => target.TPlayer.buffType.Contains(id))) return false;
         return true;
     }
