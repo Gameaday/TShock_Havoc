@@ -1,0 +1,42 @@
+name: Build and Release Havoc
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers whenever you push a tag starting with 'v' (e.g., v5.0.0)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to create the release and upload assets
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore Dependencies
+        run: dotnet restore
+
+      - name: Publish Plugin
+        # Our .csproj has the ILRepack logic hooked into the Publish target
+        run: dotnet publish -c Release -o ./publish
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          # Automatically uses the tag name for the release title
+          name: Havoc ${{ github.ref_name }}
+          # Points to the merged .dll created by our ILRepack logic
+          files: ./publish/Havoc.dll
+          draft: false
+          prerelease: false
+          generate_release_notes: true # Automatically summarizes commits since last release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
