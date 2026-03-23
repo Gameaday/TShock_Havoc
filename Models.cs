@@ -51,8 +51,9 @@ public class ChaosEvent
 
 public class SemanticQuery
 {
-    public string Action { get; set; } = ""; // e.g., "GiveWeapon", "GiveHealing", "SpawnMob"
-    public string PowerLevel { get; set; } = "Appropriate"; // "Trash", "Appropriate", "Overpowered"
+    public string Action { get; set; } = "GiveItem"; // GiveItem, SpawnMob, ApplyBuff
+    public List<string> Tags { get; set; } = new(); // e.g., ["Weapon", "Melee", "-Yoyo"]
+    public string PowerLevel { get; set; } = "Appropriate"; // Trash, Appropriate, Overpowered
     public int Amount { get; set; } = 1;
 }
 
