@@ -1,0 +1,55 @@
+{
+  "enabled": true,
+  "pools": [
+    {
+      "triggerCommand": "!annoy",
+      "isRewardRedemption": false,
+      "cooldownSeconds": 60,
+      "events": [
+        {
+          "name": "Butterfingers",
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/drop \"{player}\""]
+        },
+        {
+          "name": "Gravity Flip",
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/buff \"Gravitation\" \"{player}\" 10"]
+        },
+        {
+          "name": "Sudden Darkness",
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/buff \"Blindness\" \"{player}\" 15"]
+        }
+      ]
+    },
+    {
+      "triggerCommand": "!boss",
+      "isRewardRedemption": false,
+      "cooldownSeconds": 300,
+      "events": [
+        {
+          "name": "Eye of Cthulhu",
+          "minimumProgression": "Any",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/spawnmob \"Eye of Cthulhu\" 1"]
+        },
+        {
+          "name": "The Twins",
+          "minimumProgression": "Hardmode",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/spawnmob \"Retinazer\" 1", "/spawnmob \"Spazmatism\" 1"]
+        },
+        {
+          "name": "Plantera",
+          "minimumProgression": "PostPlantera",
+          "maximumProgression": "Any",
+          "tShockCommands": ["/spawnmob \"Plantera\" 1"]
+        }
+      ]
+    }
+  ]
+}
