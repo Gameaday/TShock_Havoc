@@ -27,12 +27,21 @@ public class ChaosPool
 
 public class ChaosEvent
 {
-    public string Name { get; set; } = ""; // Internal name for logging
+    public string Name { get; set; } = "";
+    
+    // The "Odds" of this event happening (Higher = More Common)
+    public int Weight { get; set; } = 100; 
+    
+    // Command Execution
     public List<string> TShockCommands { get; set; } = new(); 
     
+    // The Reversion Engine (Timers)
+    public int DurationSeconds { get; set; } = 0;
+    public List<string> RevertCommands { get; set; } = new();
+    
     // Progression Locks
-    public string MinimumProgression { get; set; } = "Any"; // Any, Hardmode, PostPlantera
-    public string MaximumProgression { get; set; } = "Any"; // Useful for preventing pre-hardmode enemies in endgame
+    public string MinimumProgression { get; set; } = "Any"; 
+    public string MaximumProgression { get; set; } = "Any"; 
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
