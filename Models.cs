@@ -7,22 +7,32 @@ namespace Havoc;
 public class HavocConfig
 {
     public bool Enabled { get; set; } = true;
-    public string TwitchBotToken { get; set; } = ""; // OAuth token
+    public string TwitchBotToken { get; set; } = ""; 
     public string TwitchChannelName { get; set; } = "";
-    public string TwitchClientId { get; set; } = "";
     public string ArchiveDbPath { get; set; } = "tshock/Metatron/Archive.sqlite";
     public ulong StreamerDiscordId { get; set; } = 0;
     
-    public List<HavocAction> Actions { get; set; } = new();
+    // Instead of raw actions, viewers trigger "Pools"
+    public List<ChaosPool> Pools { get; set; } = new();
 }
 
-public class HavocAction
+public class ChaosPool
 {
-    public string Command { get; set; } = ""; // e.g., "!spawn" or Reward Name
-    public string TShockCommand { get; set; } = ""; // e.g., "/spawnmob slime 10"
-    public int CooldownSeconds { get; set; } = 30;
+    public string TriggerCommand { get; set; } = ""; // e.g., "!annoy" or "Annoy Streamer" reward
     public bool IsRewardRedemption { get; set; } = false;
-    public List<string> AllowedUsers { get; set; } = new(); // Empty = Everyone
+    public int CooldownSeconds { get; set; } = 60;
+    
+    public List<ChaosEvent> Events { get; set; } = new();
+}
+
+public class ChaosEvent
+{
+    public string Name { get; set; } = ""; // Internal name for logging
+    public List<string> TShockCommands { get; set; } = new(); 
+    
+    // Progression Locks
+    public string MinimumProgression { get; set; } = "Any"; // Any, Hardmode, PostPlantera
+    public string MaximumProgression { get; set; } = "Any"; // Useful for preventing pre-hardmode enemies in endgame
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
