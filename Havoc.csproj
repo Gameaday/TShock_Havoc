@@ -21,14 +21,7 @@
     <ItemGroup>
       <MergeAssemblies Include="$(PublishDir)TwitchLib.*.dll" />
     </ItemGroup>
-    
-    <ILRepack Parallel="true" 
-              Internalize="true" 
-              InputAssemblies="$(PublishDir)$(AssemblyName).dll;@(MergeAssemblies)" 
-              TargetKind="Dll" 
-              OutputFile="$(PublishDir)$(AssemblyName).dll" 
-              LibraryPath="$(PublishDir)" />
-
+    <ILRepack Parallel="true" Internalize="true" InputAssemblies="$(PublishDir)$(AssemblyName).dll;@(MergeAssemblies)" TargetKind="Dll" OutputFile="$(PublishDir)$(AssemblyName).dll" LibraryPath="$(PublishDir)" />
     <ItemGroup>
       <FilesToDelete Include="$(PublishDir)**\*.*" Exclude="$(PublishDir)$(AssemblyName).dll" />
     </ItemGroup>
