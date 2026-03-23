@@ -1,26 +1,46 @@
-# TShock_Havoc
-Act as the bridge between live streaming platforms and the Terraria game engine, allowing external viewers to interact with the server in real-time.
+# Havoc
+### Twitch Interaction & Crowd Control Engine for TShock
 
+Havoc is a high-performance bridge between live streaming platforms and the Terraria game engine. It allows Twitch viewers to interact directly with your server in real-time through chat commands and channel point redemptions.
 
-# Module: Havoc (Live Interaction & Crowd Control)
-Objective: Act as the bridge between live streaming platforms and the Terraria game engine, allowing external viewers to interact with the server in real-time.
+---
 
-# Core Requirements
-Twitch PubSub/IRC Connection: Must maintain a persistent WebSocket connection to Twitch chat and Channel Point redemptions.
+## Features
 
-Action Mapping: Must map specific Twitch redeems or commands (e.g., "Spawn Slime King", "Midnight") to native TShock server commands.
+* **Persistent Twitch Integration**: Maintains a stable WebSocket connection to Twitch IRC for real-time command parsing.
+* **Action Mapping**: Map Twitch events directly to native TShock server commands (e.g., spawning bosses, changing time, or granting items).
+* **Identity Resolution**: Queries the Metatron central database to automatically find and target the streamer or specific linked players in-game.
+* **Flood Protection**: Thread-safe cooldown timers prevent viewers from overwhelming the server with entity spam.
+* **Graceful Degradation**: Built to silently attempt reconnections without interrupting the Terraria server heartbeat.
 
-Cooldowns & Rate Limiting: Must implement strict cooldowns per command and per user to prevent viewers from crashing the server via entity spam.
+---
 
-Identity Resolution (Optional/Advanced): If a viewer triggers a targeted event (e.g., "Heal Streamer"), Havoc must query the centralized Database to find the streamer's current in-game entity ID.
+## Installation
 
-Graceful Degradation: Must silently fail and attempt reconnections without halting the Terraria server if the Twitch API goes down.
+1. Download the bundled `Havoc.dll` from the repository releases.
+2. Place the `.dll` into your TShock `ServerPlugins` folder.
+3. Restart your server to generate the directory structure at `tshock/Havoc/`.
+4. Configure your Twitch OAuth credentials in `HavocConfig.json`.
 
-# Technical Specifications
-Dependencies: TwitchLib (or equivalent lightweight IRC/PubSub client), System.Text.Json.
+---
 
-TShock Hooks: Minimal to none. Primary operations will be dispatching Commands.HandleCommand() to the server engine.
+## Configuration
 
-Commands: /havoc reload, /havoc toggle.
+### HavocConfig.json
+| Property | Description |
+| :--- | :--- |
+| `twitchBotToken` | Your Twitch OAuth token (keep this private). |
+| `twitchChannelName` | The channel for the bot to monitor. |
+| `archiveDbPath` | Path to Metatron's `Archive.sqlite` for identity lookups. |
+| `streamerDiscordId` | Your Discord ID to enable auto-targeting of your character. |
 
-State Management: Thread-safe timers for cooldown tracking.
+### Actions
+Define your crowd control triggers in the `actions` array:
+
+```json
+{
+  "command": "!slime",
+  "tShockCommand": "/spawnmob slime 5",
+  "cooldownSeconds": 60,
+  "isRewardRedemption": false
+}
