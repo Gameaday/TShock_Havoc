@@ -7,7 +7,7 @@
     <OutputType>Library</OutputType>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>5.0.3</Version>
+    <Version>5.0.4</Version>
     <Authors>HistoryLabs</Authors>
   </PropertyGroup>
 
@@ -24,7 +24,7 @@
     
     <ILRepack Parallel="true" 
               Internalize="true" 
-              AllowDuplicateTypes="*" 
+              AllowedDuplicateNamespaces="Microsoft.Extensions.Logging" 
               InputAssemblies="$(PublishDir)$(AssemblyName).dll;@(MergeAssemblies)" 
               TargetKind="Dll" 
               OutputFile="$(PublishDir)$(AssemblyName).dll" 
