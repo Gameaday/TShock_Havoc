@@ -6,13 +6,22 @@
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>5.1.0</Version>
+    <Version>5.2.0</Version>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="TShock" Version="6.1.0" />
+    <PackageReference Include="TShock" Version="6.1.0" ExcludeAssets="runtime" />
     <PackageReference Include="TwitchLib" Version="3.5.3" />
   </ItemGroup>
+
+  <Target Name="CleanWorkshop" AfterTargets="Build;Publish">
+    <ItemGroup>
+      <JunkDlls Include="$(OutDir)*.dll" Exclude="$(OutDir)$(TargetFileName)" />
+      <JunkJson Include="$(OutDir)*.json" Exclude="$(OutDir)$(AssemblyName).deps.json" />
+    </ItemGroup>
+    <Delete Files="@(JunkDlls)" />
+    <Delete Files="@(JunkJson)" />
+  </Target>
 
 </Project>
