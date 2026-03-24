@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text.Json.Serialization;
 
 namespace Havoc;
 
@@ -56,7 +55,3 @@ public class SemanticQuery
     public string PowerLevel { get; set; } = "Appropriate"; // Trash, Appropriate, Overpowered
     public int Amount { get; set; } = 1;
 }
-
-[JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(HavocConfig))]
-internal partial class HavocJsonContext : JsonSerializerContext { }
