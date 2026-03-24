@@ -9,19 +9,26 @@ namespace Havoc;
 
 public static class HavocIndex
 {
-    public static Dictionary<string, List<int>> ItemTags = new(StringComparer.OrdinalIgnoreCase);
-    public static Dictionary<string, List<int>> MobTags = new(StringComparer.OrdinalIgnoreCase);
+    // FIX: Using HashSets for extremely fast O(1) intersections
+    public static Dictionary<string, HashSet<int>> ItemTags = new(StringComparer.OrdinalIgnoreCase);
+    public static Dictionary<string, HashSet<int>> MobTags = new(StringComparer.OrdinalIgnoreCase);
+
+    // FIX: Pre-cache tiers so we don't instantiate new Item/NPC objects mid-game
+    private static Dictionary<int, int> ItemTiers = new();
+    private static Dictionary<int, int> MobTiers = new();
 
     public static void BuildIndex()
     {
-        ItemTags.Clear(); MobTags.Clear();
-        ItemTags["All"] = new List<int>(); MobTags["All"] = new List<int>();
+        ItemTags.Clear(); MobTags.Clear(); ItemTiers.Clear(); MobTiers.Clear();
+        ItemTags["All"] = new HashSet<int>(); MobTags["All"] = new HashSet<int>();
 
         // 1. Deep Item Tagging
         for (int i = 1; i < ItemID.Count; i++)
         {
             Item item = new(); item.SetDefaults(i);
             if (string.IsNullOrEmpty(item.Name)) continue;
+
+            ItemTiers[i] = item.rare; // Pre-cache tier
 
             List<string> tags = new() { "All" };
             if (item.damage > 0 && !item.accessory && item.ammo == 0) tags.Add("Weapon");
@@ -45,6 +52,9 @@ public static class HavocIndex
         {
             NPC npc = new(); npc.SetDefaults(i);
             if (string.IsNullOrEmpty(npc.FullName) || npc.friendly || npc.townNPC) continue;
+
+            // Pre-cache tier logic
+            MobTiers[i] = npc.boss ? 10 : (npc.value > 5000 ? 6 : (npc.lifeMax > 200 ? 3 : 1));
 
             List<string> tags = new() { "All", "Enemy" };
             if (npc.boss) tags.Add("Boss");
@@ -76,45 +86,43 @@ public static class HavocIndex
 
     public static Item? QueryItem(SemanticQuery query, int worldTier)
     {
-        int? id = PerformIntersection(ItemTags, query, worldTier, true);
+        int? id = PerformIntersection(ItemTags, ItemTiers, query, worldTier);
         if (!id.HasValue) return null;
         Item item = new(); item.SetDefaults(id.Value); return item;
     }
 
     public static NPC? QueryMob(SemanticQuery query, int worldTier)
     {
-        int? id = PerformIntersection(MobTags, query, worldTier, false);
+        int? id = PerformIntersection(MobTags, MobTiers, query, worldTier);
         if (!id.HasValue) return null;
         NPC npc = new(); npc.SetDefaults(id.Value); return npc;
     }
 
-    private static int? PerformIntersection(Dictionary<string, List<int>> map, SemanticQuery query, int worldTier, bool isItem)
+    private static int? PerformIntersection(Dictionary<string, HashSet<int>> map, Dictionary<int, int> tierMap, SemanticQuery query, int worldTier)
     {
         var required = query.Tags.Where(t => !t.StartsWith("-")).ToList();
         var excluded = query.Tags.Where(t => t.StartsWith("-")).Select(t => t.Substring(1)).ToList();
 
-        IEnumerable<int> results = required.Count > 0 && map.ContainsKey(required[0]) ? map[required[0]] : map["All"];
+        // Start with the smallest required set for performance
+        HashSet<int> results = new HashSet<int>(required.Count > 0 && map.ContainsKey(required[0]) ? map[required[0]] : map["All"]);
 
         foreach (var tag in required.Skip(1))
-            if (map.ContainsKey(tag)) results = results.Intersect(map[tag]); else return null;
+            if (map.ContainsKey(tag)) results.IntersectWith(map[tag]); else return null;
 
         foreach (var tag in excluded)
-            if (map.ContainsKey(tag)) results = results.Except(map[tag]);
+            if (map.ContainsKey(tag)) results.ExceptWith(map[tag]);
 
-        results = results.Where(id => 
+        // Filter by pre-cached tier
+        var validIds = results.Where(id => 
         {
-            int tier = 0;
-            if (isItem) { Item t = new(); t.SetDefaults(id); tier = t.rare; }
-            else { NPC t = new(); t.SetDefaults(id); tier = t.boss ? 10 : (t.value > 5000 ? 6 : (t.lifeMax > 200 ? 3 : 1)); }
-            
+            int tier = tierMap.GetValueOrDefault(id, 0);
             return query.PowerLevel switch {
                 "Overpowered" => tier > worldTier,
                 "Trash" => tier <= Math.Max(0, worldTier - 3),
                 _ => tier >= Math.Max(0, worldTier - 1) && tier <= Math.Min(11, worldTier + 1)
             };
-        });
+        }).ToList();
 
-        var final = results.ToList();
-        return final.Count > 0 ? final[Random.Shared.Next(final.Count)] : null;
+        return validIds.Count > 0 ? validIds[Random.Shared.Next(validIds.Count)] : null;
     }
 }
