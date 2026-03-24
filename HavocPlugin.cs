@@ -45,26 +45,26 @@ public class HavocPlugin : TerrariaPlugin
     private int _tickCounter = 0;
     private bool _isProcessingQueue = false;
 
-    // THE GHOST RESOLVER: Unpacks TwitchLib from memory before the plugin starts
-    static HavocPlugin()
+    public HavocPlugin(Main game) : base(game) 
     {
-        AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
-        {
-            string name = new System.Reflection.AssemblyName(args.Name).Name ?? "";
-            if (!name.StartsWith("TwitchLib") && !name.Contains("ZstdSharp") && !name.Contains("Microsoft.Extensions.Logging"))
-                return null;
-
-            string resourceName = $"Havoc.Resources.{name}.dll";
-            using var stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
-            if (stream == null) return null;
-
-            byte[] data = new byte[stream.Length];
-            stream.Read(data, 0, data.Length);
-            return System.Reflection.Assembly.Load(data);
-        };
+        // FIX: Attach resolver to the instance so it can be safely removed on Dispose to prevent memory leaks.
+        AppDomain.CurrentDomain.AssemblyResolve += ResolveTwitchDependencies;
     }
 
-    public HavocPlugin(Main game) : base(game) { }
+    private System.Reflection.Assembly? ResolveTwitchDependencies(object? sender, ResolveEventArgs args)
+    {
+        string name = new System.Reflection.AssemblyName(args.Name).Name ?? "";
+        if (!name.StartsWith("TwitchLib") && !name.Contains("ZstdSharp") && !name.Contains("Microsoft.Extensions.Logging"))
+            return null;
+
+        string resourceName = $"Havoc.Resources.{name}.dll";
+        using var stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+        if (stream == null) return null;
+
+        byte[] data = new byte[stream.Length];
+        stream.Read(data, 0, data.Length);
+        return System.Reflection.Assembly.Load(data);
+    }
 
     public override void Initialize()
     {
@@ -81,8 +81,14 @@ public class HavocPlugin : TerrariaPlugin
     {
         if (!player.IsLoggedIn) { player.SendErrorMessage("[Havoc] You must be logged in."); return; }
         _targetAccountName = player.Account.Name;
-        if (!_engineAwake) { ConnectTwitch(); _engineAwake = true; }
-        player.SendSuccessMessage($"[Havoc] Bound to '{_targetAccountName}'.");
+        
+        if (!_engineAwake) 
+        { 
+            _engineAwake = true; 
+            // FIX: Run connection asynchronously so it doesn't freeze the TShock server thread
+            _ = Task.Run(() => ConnectTwitchAsync()); 
+        }
+        player.SendSuccessMessage($"[Havoc] Bound to '{_targetAccountName}'. Waiting for Twitch Sync...");
     }
 
     private void StopHavoc()
@@ -94,8 +100,20 @@ public class HavocPlugin : TerrariaPlugin
 
     private void LoadConfig()
     {
-        if (File.Exists(ConfigPath)) _config = JsonSerializer.Deserialize(File.ReadAllText(ConfigPath), HavocJsonContext.Default.HavocConfig) ?? new();
-        else File.WriteAllText(ConfigPath, JsonSerializer.Serialize(_config, HavocJsonContext.Default.HavocConfig));
+        try
+        {
+            if (File.Exists(ConfigPath))
+            {
+                var text = File.ReadAllText(ConfigPath);
+                _config = JsonSerializer.Deserialize<HavocConfig>(text, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
+            }
+            else
+            {
+                var options = new JsonSerializerOptions { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+                File.WriteAllText(ConfigPath, JsonSerializer.Serialize(_config, options));
+            }
+        }
+        catch (Exception ex) { TShock.Log.ConsoleError($"[Havoc] Config load failed: {ex.Message}"); }
     }
 
     private void AdminCommand(CommandArgs args)
@@ -107,22 +125,28 @@ public class HavocPlugin : TerrariaPlugin
         else if (cmd == "reload") { LoadConfig(); args.Player.SendSuccessMessage("[Havoc] Reloaded."); }
     }
 
-    private void ConnectTwitch()
+    private void ConnectTwitchAsync()
     {
         if (string.IsNullOrWhiteSpace(_config.TwitchBotToken)) return;
-        _client = new TwitchClient(new WebSocketClient(new ClientOptions { MessagesAllowedInPeriod = 20, ThrottlingPeriod = TimeSpan.FromSeconds(30) }));
-        _client.Initialize(new ConnectionCredentials(_config.TwitchChannelName, _config.TwitchBotToken), _config.TwitchChannelName);
-        
-        _client.OnMessageReceived += (s, e) => {
-            if (!_engineAwake) return;
-            var pool = e.ChatMessage.Bits > 0 
-                ? _config.Manifestations.Where(p => p.TriggerType == "Bits" && e.ChatMessage.Bits >= p.MinimumBits).OrderByDescending(p => p.MinimumBits).FirstOrDefault()
-                : _config.Manifestations.FirstOrDefault(p => p.TriggerType == "Chat" && p.TriggerIdentifier.Equals(e.ChatMessage.Message.Trim().Split(' ')[0], StringComparison.OrdinalIgnoreCase));
-            if (pool != null) AttemptManifestation(e.ChatMessage.Username, pool);
-        };
-        
-        _client.OnDisconnected += (s, e) => Task.Delay(5000).ContinueWith(_ => { if (_engineAwake && !_client.IsConnected) _client.Connect(); });
-        _client.Connect();
+        try
+        {
+            _client = new TwitchClient(new WebSocketClient(new ClientOptions { MessagesAllowedInPeriod = 20, ThrottlingPeriod = TimeSpan.FromSeconds(30) }));
+            _client.Initialize(new ConnectionCredentials(_config.TwitchChannelName, _config.TwitchBotToken), _config.TwitchChannelName);
+            
+            _client.OnMessageReceived += (s, e) => {
+                if (!_engineAwake) return;
+                var pool = e.ChatMessage.Bits > 0 
+                    ? _config.Manifestations.Where(p => p.TriggerType == "Bits" && e.ChatMessage.Bits >= p.MinimumBits).OrderByDescending(p => p.MinimumBits).FirstOrDefault()
+                    : _config.Manifestations.FirstOrDefault(p => p.TriggerType == "Chat" && p.TriggerIdentifier.Equals(e.ChatMessage.Message.Trim().Split(' ')[0], StringComparison.OrdinalIgnoreCase));
+                if (pool != null) AttemptManifestation(e.ChatMessage.Username, pool);
+            };
+            
+            _client.OnDisconnected += (s, e) => Task.Delay(5000).ContinueWith(_ => { if (_engineAwake && !_client.IsConnected) _client.Connect(); });
+            _client.Connect();
+            
+            TShock.Log.ConsoleInfo($"[Havoc] Twitch engine successfully synced to channel: {_config.TwitchChannelName}");
+        }
+        catch (Exception ex) { TShock.Log.ConsoleError($"[Havoc] Failed to connect to Twitch: {ex.Message}"); }
     }
 
     private void AttemptManifestation(string user, ManifestationPool pool)
@@ -177,8 +201,10 @@ public class HavocPlugin : TerrariaPlugin
         finally { _isProcessingQueue = false; }
     }
 
-    private void ExecuteAction(QueuedAction action, TSPlayer target)
+    private void ExecuteAction(QueuedAction action, TSPlayer? target)
     {
+        if (target == null) return;
+        
         List<string> commands = new();
         string name = action.Event.Name;
 
@@ -227,5 +253,17 @@ public class HavocPlugin : TerrariaPlugin
         return true;
     }
 
-    protected override void Dispose(bool disposing) { if (disposing) { ServerApi.Hooks.GameUpdate.Deregister(this, OnGameUpdate); StopHavoc(); } base.Dispose(disposing); }
+    protected override void Dispose(bool disposing) 
+    { 
+        if (disposing) 
+        { 
+            ServerApi.Hooks.GameUpdate.Deregister(this, OnGameUpdate); 
+            
+            // FIX: Deregister the Assembly Resolver to seal the memory leak
+            AppDomain.CurrentDomain.AssemblyResolve -= ResolveTwitchDependencies;
+            
+            StopHavoc(); 
+        } 
+        base.Dispose(disposing); 
+    }
 }
