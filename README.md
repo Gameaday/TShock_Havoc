@@ -15,7 +15,9 @@ Havoc is a rock-solid, completely stateless bridge between Twitch and TShock. Bu
 
 ---
 
-## 🛠 Project Roadmap
+## 🛠 Feature Ideas (post-v1)
+
+> Release planning, suite role, and phase timing live in [ROADMAP.md](./ROADMAP.md).
 
 - [ ] **Inventory Hijacking**: Implement "The Great Swap." Temporarily store a player's inventory and replace it with thematic "trash" (or "gold") for a set duration.
 - [ ] **Multi-Target Support**: Allow the engine to track multiple streamers on the same server simultaneously with independent queues.
@@ -41,4 +43,4 @@ Havoc is a rock-solid, completely stateless bridge between Twitch and TShock. Bu
 
 ---
 ## License
-MIT
+[MIT](./LICENSE)
